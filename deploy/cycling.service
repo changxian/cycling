@@ -1,0 +1,19 @@
+[Unit]
+Description=Cycling Time Machine
+After=network.target
+
+[Service]
+Type=simple
+User=cycling
+Group=cycling
+WorkingDirectory=/opt/cycling
+EnvironmentFile=/etc/cycling.env
+ExecStart=/opt/cycling/.venv/bin/gunicorn --workers 2 --threads 4 --timeout 150 --bind 127.0.0.1:8000 wsgi:app
+Restart=on-failure
+RestartSec=5
+UMask=0022
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

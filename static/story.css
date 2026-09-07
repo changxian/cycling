@@ -1,0 +1,308 @@
+.ride-story {
+  max-width: 480px;
+  margin: 0 auto;
+  color: #244237;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #fff;
+  padding: 30px 24px;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+  box-sizing: border-box
+}
+
+.ride-story * {
+  box-sizing: border-box
+}
+
+.story-date {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: #769084;
+  margin-bottom: 20px
+}
+
+.ride-story h1 {
+  font-size: 27px;
+  line-height: 1.55;
+  font-weight: 600;
+  margin: 0 0 15px
+}
+
+.story-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 25px
+}
+
+.story-tags span {
+  font-size: 11px;
+  color: #53816c;
+  background: #edf5ef;
+  padding: 4px 8px;
+  border-radius: 4px
+}
+
+.story-photos {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 -24px 25px
+}
+
+.story-photos a {
+  display: block;
+  min-width: 0
+}
+
+.story-photos a:first-child {
+  grid-column: 1/-1
+}
+
+.story-photos img {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  display: block
+}
+
+.story-photos a:first-child img {
+  aspect-ratio: 4/3
+}
+
+.story-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 30px
+}
+
+.story-metrics>div {
+  background: #f2f7f4;
+  padding: 16px;
+  border-radius: 6px;
+  min-width: 0
+}
+
+.story-metrics>div:nth-child(2n) {
+  background: #eff5f9
+}
+
+.story-metrics span {
+  display: block;
+  color: #75887d;
+  font-size: 12px
+}
+
+.story-metrics strong {
+  display: block;
+  font-size: 22px;
+  font-weight: 500;
+  margin-top: 7px;
+  line-height: 1.5
+}
+
+.story-metrics small {
+  font-size: 12px;
+  font-weight: 400;
+  color: #75887d
+}
+
+.story-entry {
+  border-top: 1px solid #e3ebe6;
+  padding: 26px 0 0;
+  margin-top: 26px
+}
+
+.story-entry h2 {
+  font-size: 14px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  color: #376f52
+}
+
+.story-entry h2 span {
+  font-size: 11px;
+  color: #849c8e
+}
+
+.story-entry p {
+  font-size: 16px;
+  line-height: 2;
+  white-space: pre-wrap;
+  color: #42594d;
+  margin: 0
+}
+
+.story-signoff {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 13px;
+  font-size: 11px;
+  color: #91a396;
+  margin-top: 40px
+}
+
+.story-signoff span {
+  width: 24px;
+  height: 1px;
+  background: #d7e4db
+}
+
+.preview-layout {
+  max-width: 528px;
+  margin: 32px auto 45px;
+  padding: 0 24px
+}
+
+.preview-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  padding-bottom: 22px
+}
+
+.saved-status {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  color: #277951;
+  font-size: 13px
+}
+
+.saved-status svg {
+  width: 19px;
+  height: 19px
+}
+
+.saved-status small {
+  display: block;
+  color: #809387;
+  font-size: 11px;
+  margin-top: 4px
+}
+
+.preview-layout>.ride-story {
+  border: 1px solid #e0e7e2
+}
+
+.preview-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 24px
+}
+
+.preview-actions>.button {
+  flex: 1
+}
+
+.standalone-story {
+  margin: 0;
+  background: #f1f6f3;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif
+}
+
+.standalone-story a {
+  color: #24694c;
+  text-decoration: none
+}
+
+.standalone-story main {
+  padding: 82px 16px 0
+}
+
+.story-nav {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 10;
+  min-height: 60px;
+  box-sizing: border-box;
+  background: #fff;
+  border-bottom: 1px solid #dfe8e1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 15px max(20px, calc((100% - 480px)/2));
+  gap: 15px
+}
+
+.story-nav>a {
+  font-size: 16px;
+  font-weight: 600
+}
+
+.story-nav nav {
+  display: flex;
+  gap: 14px;
+  font-size: 12px
+}
+
+.story-footer {
+  max-width: 480px;
+  display: flex;
+  justify-content: space-between;
+  margin: auto;
+  padding: 24px 20px;
+  font-size: 12px;
+  box-sizing: border-box
+}
+
+@media(max-width:520px) {
+  .preview-layout {
+    padding: 0 16px;
+    margin-top: 25px
+  }
+
+  .ride-story {
+    padding: 26px 20px
+  }
+
+  .story-photos {
+    margin-left: -20px;
+    margin-right: -20px
+  }
+
+  .ride-story h1 {
+    font-size: 25px
+  }
+
+  .story-metrics strong {
+    font-size: 21px
+  }
+
+  .standalone-story main {
+    padding: 76px 12px 0
+  }
+
+  .preview-toolbar>.text-link {
+    font-size: 12px
+  }
+
+  .story-nav {
+    flex-wrap: wrap
+  }
+}
+
+@media(max-width:350px) {
+  .story-metrics {
+    grid-template-columns: 1fr
+  }
+
+  .preview-actions {
+    flex-wrap: wrap
+  }
+
+  .preview-actions>.button {
+    min-width: 100%
+  }
+}

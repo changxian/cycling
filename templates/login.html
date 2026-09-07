@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block title %}登录 · 骑行时光机{% endblock %}
+{% block body_class %}login-page{% endblock %}
+{% block content %}
+<div class="login-layout">
+  <section class="login-form-section">
+    <div class="eyebrow"><span></span> YOUR NEXT CHAPTER</div>
+    <h1>骑行时光机</h1>
+    <p class="lead">回来，续写你的骑行故事。</p>
+    <form action="{{ url_for('login') }}" method="post" class="login-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      {% if error %}<div class="notice error" role="alert">{{ error }}</div>{% endif %}
+      <label>账号<input name="username" autocomplete="username" required placeholder="请输入账号" autofocus></label>
+      <label>密码<span class="password-field"><input type="password" name="password" id="login-password" autocomplete="current-password" required placeholder="请输入密码"><button type="button" class="icon-button password-toggle" data-target="login-password" aria-label="显示密码" title="显示密码"><i data-lucide="eye"></i></button></span></label>
+      <button class="button primary full" type="submit">登录 <i data-lucide="arrow-right"></i></button>
+    </form>
+    <span class="login-footnote"><i data-lucide="lock-keyhole"></i> 私人骑行手记</span>
+  </section>
+  <div class="login-photo"><img src="{{ url_for('static', filename='cycling.jpg') }}" alt="骑行者穿过松林与群山之间的公路"><div class="photo-caption"><span>ON THE ROAD</span><p>风景在路上，<br>故事在脚下。</p></div><a class="photo-credit" href="https://unsplash.com/photos/rCeH116HQAo" target="_blank" rel="noopener noreferrer">摄影：Kirsten Frank / Unsplash</a></div>
+</div>
+{% endblock %}

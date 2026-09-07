@@ -1,0 +1,10 @@
+<article class="ride-story">
+  <div class="story-date"><span>骑行手记</span><time datetime="{{ record.date }}">{{ record.date.replace('-', ' / ') }}</time></div>
+  <h1>{{ record.title }}</h1>
+  <div class="story-tags">{% for style in record.styles %}<span>{{ style_map[style].label }}</span>{% endfor %}</div>
+  {% if record.photos %}<div class="story-photos">{% for photo in record.photos %}<a href="/tmp/{{ photo }}" target="_blank" rel="noopener"><img src="/tmp/{{ photo }}" alt="{{ record.date }} 的骑行照片 {{ loop.index }}" {% if not loop.first %}loading="lazy"{% endif %}></a>{% endfor %}</div>{% endif %}
+  {% set filled = namespace(any=false) %}{% for key, label, unit, icon in metrics %}{% if record[key] != '' %}{% set filled.any = true %}{% endif %}{% endfor %}
+  {% if filled.any %}<div class="story-metrics">{% for key, label, unit, icon in metrics %}{% if record[key] != '' %}<div><span>{{ label }}</span><strong>{{ record[key] }} <small>{{ unit if key != 'duration' else '' }}</small></strong></div>{% endif %}{% endfor %}</div>{% endif %}
+  <div class="story-entries">{% for entry in record.entries %}<section class="story-entry"><h2><span>{{ '%02d'|format(loop.index) }}</span>{{ style_map[entry.style].label }}</h2><p>{{ entry.text }}</p></section>{% endfor %}</div>
+  <div class="story-signoff"><span></span>这一程，已成为时光<span></span></div>
+</article>
