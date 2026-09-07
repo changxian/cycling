@@ -1,8 +1,0 @@
-{% extends 'base.html' %}
-{% block title %}时光画廊 · 骑行时光机{% endblock %}
-{% block content %}
-<div class="workspace gallery-workspace"><div class="page-heading"><div><div class="eyebrow"><span></span> MILES INTO MEMORIES</div><h1>时光画廊<span class="heading-count">{{ items|length }}</span></h1><p class="lead">走过的路，都在这里。</p></div><a class="button primary" href="{{ url_for('index') }}"><i data-lucide="plus"></i>记录新骑行</a></div>
-{% if items %}<div class="gallery-meta"><span>{{ items|length }} 段骑行时光</span><span><i data-lucide="arrow-down-wide-narrow"></i>最新在前</span></div><div class="gallery-grid">{% for item in items %}<a class="gallery-item" href="{{ url_for('cycling_html', filename=item.filename) }}"><div class="gallery-cover">{% if item.thumbnail %}<img src="{{ item.thumbnail }}" alt="{{ item.date }} 的骑行照片" loading="lazy">{% else %}<div class="no-photo"><i data-lucide="bike"></i><span>CYCLING JOURNAL</span></div>{% endif %}<span class="gallery-open"><i data-lucide="arrow-up-right"></i></span></div><div class="gallery-details"><time datetime="{{ item.date }}">{{ item.date.replace('-', ' / ') }}</time><h2>{{ item.title }}</h2>{% if item.summary %}<p>{{ item.summary }}</p>{% endif %}<div class="gallery-tags">{% if item.distance is defined and item.distance != '' %}<span>{{ item.distance }} km</span>{% endif %}{% for style in item.styles %}<span>{{ style_map[style].label }}</span>{% endfor %}</div></div></a>{% endfor %}</div>
-{% else %}<section class="gallery-empty"><span class="empty-icon"><i data-lucide="route"></i></span><h2>第一段时光，等你出发</h2><p>还没有骑行记录。</p><a href="{{ url_for('index') }}" class="button primary"><i data-lucide="plus"></i>记录第一程</a></section>{% endif %}
-</div>
-{% endblock %}

@@ -11,7 +11,8 @@ from playwright.sync_api import sync_playwright
 from werkzeug.serving import make_server
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from app import create_app
+from backend.app import create_app
+from frontend.dev_server import create_server
 
 
 class FakeAI(BaseHTTPRequestHandler):
@@ -49,15 +50,15 @@ class FakeAI(BaseHTTPRequestHandler):
 
 
 def check_layout(page):
+    if not page.url.split("?", 1)[0].endswith(".html"):
+        page.locator('#main-content[aria-busy="false"]').wait_for()
     page.wait_for_function(
         "!window.lucide || document.querySelectorAll('[data-lucide]:not(svg)').length === 0"
     )
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), (
         "Horizontal overflow"
     )
-    assert page.locator("img").evaluate_all(
-        "images => images.every(img => img.complete && img.naturalWidth > 0)"
-    ), "Broken image"
+    page.wait_for_function("Array.from(document.images).filter(img => img.getClientRects().length).every(img => img.complete && img.naturalWidth > 0)")
 
 
 def main():
@@ -75,10 +76,11 @@ def main():
             }
         )
         web = make_server("127.0.0.1", 0, app, threaded=True)
+        frontend = create_server(port=0, backend_url=f"http://127.0.0.1:{web.server_port}")
         provider = ThreadingHTTPServer(("127.0.0.1", 0), FakeAI)
-        for server in (web, provider):
+        for server in (web, provider, frontend):
             threading.Thread(target=server.serve_forever, daemon=True).start()
-        origin = f"http://127.0.0.1:{web.server_port}"
+        origin = f"http://127.0.0.1:{frontend.server_port}"
         try:
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch()
@@ -88,6 +90,8 @@ def main():
                 errors = []
                 page.on("pageerror", lambda error: errors.append(str(error)))
                 page.goto(origin)
+                page.wait_for_url("**/login")
+                check_layout(page)
                 page.screenshot(
                     path=str(artifacts / "login-desktop.png"), full_page=True
                 )
@@ -96,7 +100,7 @@ def main():
                 page.locator('[name="password"]').fill("admin123")
                 page.get_by_role("button", name="登录", exact=True).click()
                 page.wait_for_url(origin + "/")
-                assert page.locator("#ride-form").get_attribute("action") == "/upload"
+                assert page.locator("#ride-form").get_attribute("action") == "/api/generate"
                 check_layout(page)
                 page.screenshot(
                     path=str(artifacts / "home-desktop.png"), full_page=True
@@ -125,13 +129,14 @@ def main():
                 page.locator('[name="heart_rate"]').fill("138")
                 page.locator('[value="poetic"]').check()
                 page.locator('[value="diary"]').check()
-                page.locator("#photo-input").set_input_files("static/cycling.jpg")
+                page.locator("#photo-input").set_input_files("frontend/assets/cycling.jpg")
                 assert page.locator(".photo-preview").count() == 1
                 page.locator(".remove-photo").click()
                 assert page.locator(".photo-preview").count() == 0
-                page.locator("#photo-input").set_input_files("static/cycling.jpg")
+                page.locator("#photo-input").set_input_files("frontend/assets/cycling.jpg")
                 page.get_by_role("button", name="生成骑行故事").click()
                 page.wait_for_url("**/generate?date=2026-09-07")
+                page.locator('.story-entry').first.wait_for()
                 assert page.locator(".story-entry").count() == 2
                 check_layout(page)
                 page.screenshot(
@@ -157,6 +162,10 @@ def main():
                         )
                 page.set_viewport_size({"width": 1440, "height": 1024})
                 page.goto(origin + "/gallery")
+                check_layout(page)
+                assert page.locator(".gallery-item").count() == 1
+                page.reload()
+                check_layout(page)
                 assert page.locator(".gallery-item").count() == 1
                 page.screenshot(
                     path=str(artifacts / "gallery-desktop.png"), full_page=True
@@ -170,6 +179,18 @@ def main():
                 )
                 page.goto(origin + "/cycling/20260907.html")
                 assert page.url.endswith("/login")
+                page.goto(origin + "/settings")
+                page.wait_for_url("**/login")
+                check_layout(page)
+                page.locator('[name="username"]').fill("root")
+                page.locator('[name="password"]').fill("admin123")
+                page.get_by_role("button", name="登录", exact=True).click()
+                page.wait_for_url(origin + "/")
+                check_layout(page)
+                page.context.clear_cookies()
+                page.goto(origin + "/gallery")
+                page.wait_for_url("**/login")
+                check_layout(page)
                 assert not errors, errors
                 browser.close()
                 print(
@@ -178,6 +199,10 @@ def main():
         finally:
             web.shutdown()
             provider.shutdown()
+            frontend.shutdown()
+            web.server_close()
+            provider.server_close()
+            frontend.server_close()
 
 
 if __name__ == "__main__":

@@ -9,7 +9,7 @@ import pytest
 import requests
 from PIL import Image
 
-from app import create_app
+from backend.app import create_app
 
 
 @pytest.fixture
@@ -37,13 +37,15 @@ def token(client):
 
 
 def login(client):
-    client.get("/login")
+    bootstrap = client.get("/api/session").get_json()
     response = client.post(
-        "/login",
-        data={"username": "root", "password": "admin123", "csrf_token": token(client)},
+        "/api/login",
+        json={"username": "root", "password": "admin123"},
+        headers={"X-CSRF-Token": bootstrap["csrf_token"]},
     )
-    assert response.status_code == 302
-    client.get("/")
+    assert response.status_code == 200
+    assert response.get_json()["authenticated"] is True
+    assert response.get_json()["csrf_token"] != bootstrap["csrf_token"]
 
 
 def post(client, path, data=None, json_data=None):
@@ -60,7 +62,7 @@ def configure(client):
     assert (
         post(
             client,
-            "/settings/save",
+            "/api/config",
             {"base_url": "https://ai.example/v1", "api_key": "private-test-key"},
         ).status_code
         == 200
@@ -81,7 +83,7 @@ def fake_ai(monkeypatch, title="山风里的骑行", styles=("poetic",)):
             json=lambda: {"choices": [{"message": {"content": json.dumps(result)}}]},
         )
     )
-    monkeypatch.setattr("app.requests.post", call)
+    monkeypatch.setattr("backend.app.requests.post", call)
     return call
 
 
@@ -94,34 +96,30 @@ def image_upload():
 
 def test_authentication_and_csrf(client):
     for path in [
-        "/",
-        "/settings",
-        "/gallery",
-        "/generate",
         "/cycling/20260907.html",
         "/tmp/test.jpg",
     ]:
         assert client.get(path).headers["Location"].endswith("/login")
     assert client.get("/api/config").status_code == 401
-    assert client.get("/auth/check").status_code == 401
-    client.get("/login")
+    assert client.get("/api/auth/check").status_code == 401
+    client.get("/api/session")
     assert (
         client.post(
-            "/login", data={"username": "root", "password": "admin123"}
+            "/api/login", data={"username": "root", "password": "admin123"}
         ).status_code
         == 400
     )
     assert (
         client.post(
-            "/login",
+            "/api/login",
             data={"username": "root", "password": "wrong", "csrf_token": token(client)},
         ).status_code
         == 401
     )
     login(client)
-    assert client.get("/auth/check").status_code == 204
-    assert client.post("/settings/save", json={}).status_code == 400
-    assert post(client, "/logout").status_code == 302
+    assert client.get("/api/auth/check").status_code == 204
+    assert client.post("/api/config", json={}).status_code == 400
+    assert post(client, "/api/logout").get_json()["authenticated"] is False
     assert client.get("/api/config").status_code == 401
 
 
@@ -133,11 +131,11 @@ def test_settings_key_is_private_and_persistent(app, client):
         "model": "gpt-4o",
         "has_key": True,
     }
-    assert b"private-test-key" not in client.get("/settings").data
+    assert b"private-test-key" not in client.get("/api/config").data
     assert (
         post(
             client,
-            "/settings/save",
+            "/api/config",
             {
                 "base_url": "https://ai.example/v1",
                 "api_key": "",
@@ -149,7 +147,7 @@ def test_settings_key_is_private_and_persistent(app, client):
     assert (
         post(
             client,
-            "/settings/save",
+            "/api/config",
             {"base_url": "https://other.example/v1", "api_key": ""},
         ).status_code
         == 400
@@ -170,7 +168,7 @@ def test_generate_multiple_styles_with_vision_and_edit(app, client, monkeypatch)
     call = fake_ai(monkeypatch, styles=("poetic", "funny"))
     response = post(
         client,
-        "/upload",
+        "/api/generate",
         {
             "date": "2026-09-07",
             "distance": "56.4",
@@ -190,9 +188,9 @@ def test_generate_multiple_styles_with_vision_and_edit(app, client, monkeypatch)
     html = Path(app.config["OUTPUT_DIR"], "20260907.html").read_text()
     assert "56.4" in html and "趣味搞笑" in html and "<style>" in html
     assert "private-test-key" not in html
-    assert client.get(result["redirect"]).status_code == 200
-    edit = client.get("/?edit=2026-09-07").get_data(as_text=True)
-    assert "56.4" in edit and record["photos"][0] in edit
+    assert client.get("/api/result").get_json()["record"] == record
+    edit = client.get("/api/rides/2026-09-07").get_json()["record"]
+    assert edit["distance"] == "56.4" and edit["photos"] == record["photos"]
     assert client.get(result["html_url"]).status_code == 200
     assert client.get("/tmp/" + record["photos"][0]).mimetype == "image/jpeg"
     fake_ai(monkeypatch)
@@ -255,7 +253,7 @@ def test_upload_validation_and_failed_generation_cleanup(app, client, monkeypatc
     call = fake_ai(monkeypatch)
     invalid = post(
         client,
-        "/upload",
+        "/api/generate",
         {
             "styles": "poetic",
             "photos": (io.BytesIO(b"<script>bad</script>"), "fake.jpg"),
@@ -264,7 +262,7 @@ def test_upload_validation_and_failed_generation_cleanup(app, client, monkeypatc
     assert invalid.status_code == 400
     call.assert_not_called()
     call.side_effect = requests.Timeout()
-    failed = post(client, "/upload", {"styles": "poetic", "photos": image_upload()})
+    failed = post(client, "/api/generate", {"styles": "poetic", "photos": image_upload()})
     assert failed.status_code == 504
     assert list(Path(app.config["PHOTO_DIR"]).iterdir()) == []
     assert list(Path(app.config["OUTPUT_DIR"]).iterdir()) == []
@@ -274,7 +272,7 @@ def test_upload_validation_and_failed_generation_cleanup(app, client, monkeypatc
 def test_provider_errors_are_readable_and_do_not_save(client, monkeypatch, status):
     configure(client)
     monkeypatch.setattr(
-        "app.requests.post", Mock(return_value=Mock(status_code=status))
+        "backend.app.requests.post", Mock(return_value=Mock(status_code=status))
     )
     response = post(client, "/api/generate", json_data={"styles": ["poetic"]})
     assert response.status_code == 502
@@ -285,18 +283,18 @@ def test_invalid_ai_json_preserves_previous_record(app, client, monkeypatch):
     configure(client)
     fake_ai(monkeypatch)
     assert (
-        post(client, "/upload", {"styles": "poetic", "date": "2026-09-07"}).status_code
+        post(client, "/api/generate", {"styles": "poetic", "date": "2026-09-07"}).status_code
         == 200
     )
     previous = Path(app.config["OUTPUT_DIR"], "20260907.html").read_bytes()
     monkeypatch.setattr(
-        "app.requests.post",
+        "backend.app.requests.post",
         Mock(return_value=Mock(status_code=200, json=lambda: {"choices": []})),
     )
     assert (
         post(
             client,
-            "/upload",
+            "/api/generate",
             {"styles": "poetic", "date": "2026-09-07", "photos": image_upload()},
         ).status_code
         == 502
@@ -308,25 +306,20 @@ def test_invalid_ai_json_preserves_previous_record(app, client, monkeypatch):
 def test_gallery_scans_disk_and_orders_dates(app, client, monkeypatch):
     configure(client)
     fake_ai(monkeypatch, title="今天的骑行")
-    post(client, "/upload", {"styles": "poetic", "date": "2026-09-07"})
+    post(client, "/api/generate", {"styles": "poetic", "date": "2026-09-07"})
     output = Path(app.config["OUTPUT_DIR"])
     (output / "20260101.html").write_text("<title>旧年初的骑行</title>")
     (output / "20261201.html").write_text("<title>十二月的骑行</title>")
     (output / "20269999.html").write_text("<title>错误日期</title>")
     (output / "unrelated.html").write_text("<title>无关页面</title>")
-    html = client.get("/gallery").get_data(as_text=True)
-    assert (
-        html.index("十二月的骑行")
-        < html.index("今天的骑行")
-        < html.index("旧年初的骑行")
-    )
-    assert "错误日期" not in html and "无关页面" not in html
+    items = client.get("/api/rides").get_json()["items"]
+    assert [item["title"] for item in items] == ["十二月的骑行", "今天的骑行", "旧年初的骑行"]
 
 
 def test_ai_output_is_escaped(app, client, monkeypatch):
     configure(client)
     fake_ai(monkeypatch, title='<script>alert("x")</script>')
-    post(client, "/upload", {"styles": "poetic", "date": "2026-09-07"})
+    post(client, "/api/generate", {"styles": "poetic", "date": "2026-09-07"})
     html = Path(app.config["OUTPUT_DIR"], "20260907.html").read_text()
     assert "<script>" not in html
     assert "&lt;script&gt;" in html
@@ -338,22 +331,52 @@ def test_missing_configuration_and_protected_assets(client):
         post(client, "/api/generate", json_data={"styles": ["poetic"]}).status_code
         == 400
     )
-    assert client.get("/generate").status_code == 302
+    assert client.get("/api/result").get_json() == {"record": None}
     assert client.get("/cycling/secret.key").status_code == 404
     assert client.get("/tmp/secret.key").status_code == 404
-    assert client.get("/?edit=missing").status_code == 404
+    assert client.get("/api/rides/missing").status_code == 404
+
+
+def test_backend_only_serves_api_and_artifacts(client):
+    login(client)
+    for path in ["/", "/login", "/settings", "/gallery", "/generate", "/static/app.js"]:
+        response = client.get(path)
+        assert response.status_code == 404
+        assert response.is_json
+    meta = client.get("/api/meta").get_json()
+    assert len(meta["styles"]) == 6 and len(meta["metrics"]) == 6
+    assert meta["count"] == 0 and meta["configured"] is False
+
+
+def test_api_returns_json_without_accept_header_and_protects_put(client):
+    response = client.get("/api/rides")
+    assert response.status_code == 401 and response.is_json
+    login(client)
+    assert client.put("/api/config", json={}).status_code == 400
+    response = client.put("/api/config", json={"base_url": "https://ai.example/v1", "api_key": "secret"}, headers={"X-CSRF-Token": token(client)})
+    assert response.status_code == 200
+    assert response.get_json()["message"]
+
+
+def test_logout_invalidates_session_and_rotates_csrf(client):
+    login(client)
+    old_token = token(client)
+    response = post(client, "/api/logout")
+    assert response.get_json()["csrf_token"] != old_token
+    assert client.get("/api/meta").status_code == 401
+    assert client.post("/api/login", json={"username": "root", "password": "admin123"}, headers={"X-CSRF-Token": old_token}).status_code == 400
 
 
 def test_atomic_write_rollback(app, client, monkeypatch):
     configure(client)
     fake_ai(monkeypatch)
-    post(client, "/upload", {"styles": "poetic", "date": "2026-09-07"})
+    post(client, "/api/generate", {"styles": "poetic", "date": "2026-09-07"})
     previous = Path(app.config["OUTPUT_DIR"], "20260907.html").read_bytes()
-    monkeypatch.setattr("app.os.replace", Mock(side_effect=OSError("disk error")))
+    monkeypatch.setattr("backend.app.os.replace", Mock(side_effect=OSError("disk error")))
     with pytest.raises(OSError):
         post(
             client,
-            "/upload",
+            "/api/generate",
             {"styles": "poetic", "date": "2026-09-07", "photos": image_upload()},
         )
     assert Path(app.config["OUTPUT_DIR"], "20260907.html").read_bytes() == previous

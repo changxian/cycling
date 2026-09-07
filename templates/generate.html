@@ -1,6 +1,0 @@
-{% extends 'base.html' %}
-{% block title %}{{ record.title }} · 骑行时光机{% endblock %}
-{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='story.css') }}">{% endblock %}
-{% block content %}
-<div class="preview-layout"><div class="preview-toolbar"><div class="saved-status"><i data-lucide="circle-check"></i><span>已珍藏这一程<small>{{ filename }}</small></span></div><a href="{{ url_for('gallery') }}" class="text-link">时光画廊<i data-lucide="arrow-up-right"></i></a></div>{% include 'story_content.html' %}<div class="preview-actions"><a class="button secondary" href="{{ url_for('index', edit=record.date) }}"><i data-lucide="pencil"></i>返回修改</a><a class="button primary" href="{{ url_for('cycling_html', filename=filename) }}" target="_blank" rel="noopener"><i data-lucide="external-link"></i>查看 HTML</a></div></div>
-{% endblock %}

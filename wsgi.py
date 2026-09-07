@@ -1,3 +1,3 @@
-from app import create_app
+from backend.wsgi import app
 
-app = create_app()
+__all__ = ["app"]

@@ -1,27 +1,44 @@
-(() => {
+import { postForm } from './api.js';
+
+export function initInteractions() {
   const icons = () => window.lucide?.createIcons();
   icons();
-  const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
   const showMessage = (element, text, success = false) => {
     element.textContent = text;
     element.className = `notice ${success ? 'success' : 'error'}`;
     element.hidden = false;
   };
-  async function postForm(url, data) {
-    const response = await fetch(url, {
-      method: 'POST', body: data,
-      headers: { 'X-CSRF-Token': csrf, Accept: 'application/json' },
-    });
-    let result;
-    try { result = await response.json(); }
-    catch { throw new Error('服务暂时不可用，请稍后重试。'); }
-    if (response.status === 401 && result.redirect) {
-      window.location.assign(result.redirect);
-      throw new Error(result.error);
-    }
-    if (!response.ok) throw new Error(result.error || '请求未完成，请重试。');
-    return result;
-  }
+  const loginForm = document.getElementById('login-form');
+  loginForm?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = loginForm.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      await postForm('/api/login', new FormData(loginForm));
+      window.location.assign('/');
+    } catch (error) {
+      showMessage(document.getElementById('login-message'), error.message);
+    } finally { button.disabled = false; }
+  });
+  const logoutForm = document.querySelector('.logout-form');
+  logoutForm?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = logoutForm.querySelector('button');
+    button.disabled = true;
+    try {
+      await postForm('/api/logout');
+      window.location.replace('/login');
+    } catch (error) {
+      let message = document.getElementById('logout-message');
+      if (!message) {
+        message = document.createElement('div');
+        message.id = 'logout-message';
+        message.setAttribute('role', 'alert');
+        document.getElementById('main-content').prepend(message);
+      }
+      showMessage(message, error.message);
+    } finally { button.disabled = false; }
+  });
   document.querySelectorAll('.password-toggle').forEach(button => {
     button.addEventListener('click', () => {
       const input = document.getElementById(button.dataset.target);
@@ -165,4 +182,4 @@
       generationStatus.hidden = true;
     }
   });
-})();
+}
