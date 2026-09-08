@@ -278,7 +278,7 @@ def create_app(test_config=None):
         USERNAME=os.environ.get("CYCLING_USERNAME", "root"),
         PASSWORD=os.environ.get("CYCLING_PASSWORD", "admin123"),
         SECRET_KEY=os.environ.get("CYCLING_SECRET_KEY"),
-        MAX_CONTENT_LENGTH=40 * 1024 * 1024,
+        MAX_CONTENT_LENGTH=300 * 1024 * 1024,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=os.environ.get("CYCLING_COOKIE_SECURE") == "1",
@@ -365,7 +365,7 @@ def create_app(test_config=None):
     def http_error(error):
         messages = {
             404: "没有找到这条骑行记录。",
-            413: "上传内容过大，总大小不能超过 40 MB。",
+            413: "上传内容过大，总大小不能超过 300 MB。",
             405: "不支持此请求方式。",
         }
         return user_error(
@@ -462,9 +462,9 @@ def create_app(test_config=None):
         names = []
         photo_dir = Path(app.config["PHOTO_DIR"])
         for upload in files:
-            raw = upload.read(10 * 1024 * 1024 + 1)
-            if len(raw) > 10 * 1024 * 1024:
-                raise UserError("单张照片不能超过 10 MB。")
+            raw = upload.read(30 * 1024 * 1024 + 1)
+            if len(raw) > 30 * 1024 * 1024:
+                raise UserError("单张照片不能超过 30 MB。")
             try:
                 with warnings.catch_warnings():
                     warnings.simplefilter("error", Image.DecompressionBombWarning)

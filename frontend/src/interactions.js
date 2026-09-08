@@ -92,8 +92,8 @@ export function initInteractions() {
       return;
     }
     for (const file of files) {
-      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) {
-        photoError.textContent = '请选择 10 MB 以内的 JPG、PNG 或 WebP 照片。';
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 30 * 1024 * 1024) {
+        photoError.textContent = '请选择 30 MB 以内的 JPG、PNG 或 WebP 照片。';
         photoError.hidden = false;
         return;
       }
