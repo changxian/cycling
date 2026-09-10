@@ -357,7 +357,7 @@ def test_ai_output_is_escaped(app, client, monkeypatch):
     fake_ai(monkeypatch, title='<script>alert("x")</script>')
     post(client, "/api/generate", {"styles": "poetic", "date": "2026-09-07"})
     html = Path(app.config["OUTPUT_DIR"], "20260907.html").read_text()
-    assert "<script>" not in html
+    assert '<script>alert("x")</script>' not in html
     assert "&lt;script&gt;" in html
 
 

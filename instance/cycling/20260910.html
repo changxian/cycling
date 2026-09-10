@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="山道蜿蜒向上，混凝土护坡投下冷峻的阴影。前方那个身影似乎总在微妙地变换位置，每一次过弯都像是某种无声的邀请或警告。没有精确的距离记录，没有配速数据，只有2026年9月10日这个日期镌刻在路上。当阳光被山体切割成明暗交错的条纹，车轮碾过每一寸"><title>弯道深处的未知凝视</title><style>.ride-story {
+  max-width: 480px;
+  margin: 0 auto;
+  color: #244237;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #fff;
+  padding: 30px 24px;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+  box-sizing: border-box
+}
+
+.ride-story * {
+  box-sizing: border-box
+}
+
+.story-date {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: #769084;
+  margin-bottom: 20px
+}
+
+.ride-story h1 {
+  font-size: 27px;
+  line-height: 1.55;
+  font-weight: 600;
+  margin: 0 0 15px
+}
+
+.story-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 25px
+}
+
+.story-tags span {
+  font-size: 11px;
+  color: #53816c;
+  background: #edf5ef;
+  padding: 4px 8px;
+  border-radius: 4px
+}
+
+.story-photos {
+  margin: 0 -24px 25px
+}
+
+.story-slides {
+  display: grid
+}
+
+.story-photos a {
+  display: block;
+  min-width: 0
+}
+
+.story-slide {
+  grid-area: 1/1;
+  display: none !important
+}
+
+.story-slide.is-active {
+  display: block !important
+}
+
+.story-photos img {
+  width: 100%;
+  height: auto;
+  max-height: min(72vh, 620px);
+  object-fit: contain;
+  background: #edf3ef;
+  display: block
+}
+
+.carousel-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 10px;
+  background: #f2f7f4;
+  color: #376f52;
+  font-size: 12px
+}
+
+.carousel-controls button {
+  border: 0;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  background: #fff;
+  color: #376f52;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer
+}
+
+.carousel-controls button:focus-visible {
+  outline: 2px solid #376f52;
+  outline-offset: 2px
+}
+
+.story-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 30px
+}
+
+.story-metrics>div {
+  background: #f2f7f4;
+  padding: 16px;
+  border-radius: 6px;
+  min-width: 0
+}
+
+.story-metrics>div:nth-child(2n) {
+  background: #eff5f9
+}
+
+.story-metrics span {
+  display: block;
+  color: #75887d;
+  font-size: 12px
+}
+
+.story-metrics strong {
+  display: block;
+  font-size: 22px;
+  font-weight: 500;
+  margin-top: 7px;
+  line-height: 1.5
+}
+
+.story-metrics small {
+  font-size: 12px;
+  font-weight: 400;
+  color: #75887d
+}
+
+.story-entry {
+  border-top: 1px solid #e3ebe6;
+  padding: 26px 0 0;
+  margin-top: 26px
+}
+
+.story-entry h2 {
+  font-size: 14px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  color: #376f52
+}
+
+.story-entry h2 span {
+  font-size: 11px;
+  color: #849c8e
+}
+
+.story-entry p {
+  font-size: 16px;
+  line-height: 2;
+  white-space: pre-wrap;
+  color: #42594d;
+  margin: 0
+}
+
+.story-signoff {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 13px;
+  font-size: 11px;
+  color: #91a396;
+  margin-top: 40px
+}
+
+.story-signoff span {
+  width: 24px;
+  height: 1px;
+  background: #d7e4db
+}
+
+.preview-layout {
+  max-width: 528px;
+  margin: 32px auto 45px;
+  padding: 0 24px
+}
+
+.preview-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 15px;
+  padding-bottom: 22px
+}
+
+.saved-status {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  color: #277951;
+  font-size: 13px
+}
+
+.saved-status svg {
+  width: 19px;
+  height: 19px
+}
+
+.saved-status small {
+  display: block;
+  color: #809387;
+  font-size: 11px;
+  margin-top: 4px
+}
+
+.preview-layout>.ride-story {
+  border: 1px solid #e0e7e2
+}
+
+.preview-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 24px
+}
+
+.preview-actions>.button {
+  flex: 1
+}
+
+.standalone-story {
+  margin: 0;
+  background: #f1f6f3;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif
+}
+
+.standalone-story a {
+  color: #24694c;
+  text-decoration: none
+}
+
+.standalone-story main {
+  padding: 82px 16px 0
+}
+
+.story-nav {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 10;
+  min-height: 60px;
+  box-sizing: border-box;
+  background: #fff;
+  border-bottom: 1px solid #dfe8e1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 15px max(20px, calc((100% - 480px)/2));
+  gap: 15px
+}
+
+.story-nav>a {
+  font-size: 16px;
+  font-weight: 600
+}
+
+.story-nav nav {
+  display: flex;
+  gap: 14px;
+  font-size: 12px
+}
+
+.story-footer {
+  max-width: 480px;
+  display: flex;
+  justify-content: space-between;
+  margin: auto;
+  padding: 24px 20px;
+  font-size: 12px;
+  box-sizing: border-box
+}
+
+@media(max-width:520px) {
+  .preview-layout {
+    padding: 0 16px;
+    margin-top: 25px
+  }
+
+  .ride-story {
+    padding: 26px 20px
+  }
+
+  .story-photos {
+    margin-left: -20px;
+    margin-right: -20px
+  }
+
+  .ride-story h1 {
+    font-size: 25px
+  }
+
+  .story-metrics strong {
+    font-size: 21px
+  }
+
+  .standalone-story main {
+    padding: 76px 12px 0
+  }
+
+  .preview-toolbar>.text-link {
+    font-size: 12px
+  }
+
+  .story-nav {
+    flex-wrap: wrap
+  }
+}
+
+@media(max-width:350px) {
+  .story-metrics {
+    grid-template-columns: 1fr
+  }
+
+  .preview-actions {
+    flex-wrap: wrap
+  }
+
+  .preview-actions>.button {
+    min-width: 100%
+  }
+}
+</style></head>
+<body class="standalone-story"><header class="story-nav"><a href="/">骑行时光机</a><nav aria-label="导航"><a href="/gallery">时光画廊</a><a href="/settings">AI 配置</a></nav></header><main><article class="ride-story">
+  <div class="story-date"><span>骑行手记</span><time datetime="2026-09-10">2026 / 09 / 10</time></div>
+  <h1>弯道深处的未知凝视</h1>
+  <div class="story-tags"><span>恐怖悬疑</span></div>
+  <div class="story-photos">
+    <div class="story-slides"><a class="story-slide is-active" href="/cycling/photos/a2c6fadeb8a1f0ec6463e677c4ac5324.jpg" target="_blank" rel="noopener" aria-label="查看第 1 张原图"><img src="/cycling/photos/a2c6fadeb8a1f0ec6463e677c4ac5324.jpg" alt="2026-09-10 的骑行照片 1" ></a></div>
+    
+  </div>
+  
+  
+  <div class="story-entries"><section class="story-entry"><h2><span>01</span>恐怖悬疑</h2><p>山道蜿蜒向上，混凝土护坡投下冷峻的阴影。前方那个身影似乎总在微妙地变换位置，每一次过弯都像是某种无声的邀请或警告。没有精确的距离记录，没有配速数据，只有2026年9月10日这个日期镌刻在路上。当阳光被山体切割成明暗交错的条纹，车轮碾过每一寸柏油路面，都在追问：这究竟是一场孤独的追逐，还是两个未知轨迹的偶然交汇？山路尽头，答案或许早已埋伏在下一个弯道之后。</p></section></div>
+  <div class="story-signoff"><span></span>这一程，已成为时光<span></span></div>
+</article></main><footer class="story-footer"><a href="/">回到首页</a><a href="/gallery">所有时光</a></footer><script>(function(){document.querySelectorAll('[data-carousel]').forEach(function(carousel){var slides=[].slice.call(carousel.querySelectorAll('.story-slide')),count=carousel.querySelector('.carousel-count'),index=0,timer;function show(next){index=(next+slides.length)%slides.length;slides.forEach(function(slide,i){slide.classList.toggle('is-active',i===index);slide.tabIndex=i===index?0:-1});count.textContent=(index+1)+' / '+slides.length}function play(){clearInterval(timer);timer=setInterval(function(){show(index+1)},5000)}carousel.querySelector('[data-carousel-prev]').addEventListener('click',function(){show(index-1);play()});carousel.querySelector('[data-carousel-next]').addEventListener('click',function(){show(index+1);play()});carousel.addEventListener('mouseenter',function(){clearInterval(timer)});carousel.addEventListener('mouseleave',play);carousel.addEventListener('focusin',function(){clearInterval(timer)});carousel.addEventListener('focusout',play);show(0);if(!matchMedia('(prefers-reduced-motion: reduce)').matches)play()})})();</script></body></html>
