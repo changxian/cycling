@@ -820,7 +820,7 @@ input:focus {
 }
 
 .settings-layout {
-  max-width: 660px;
+  max-width: 1120px;
   margin: auto;
   padding: 56px 28px 70px
 }
@@ -844,8 +844,44 @@ input:focus {
   padding-top: 24px
 }
 
-#settings-form>label {
-  margin-top: 26px
+.settings-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 28px
+}
+
+.settings-card {
+  min-width: 0
+}
+
+.settings-card h2 {
+  margin: 0 0 18px;
+  font-size: 17px;
+  font-weight: 550
+}
+
+.settings-card>label,
+.story-schemes label {
+  display: block;
+  margin-top: 20px
+}
+
+.story-schemes {
+  border-left: 1px solid var(--line);
+  padding-left: 28px
+}
+
+.story-schemes>p {
+  margin: -4px 0 18px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7
+}
+
+.story-schemes textarea {
+  min-height: 78px;
+  resize: vertical;
+  line-height: 1.55
 }
 
 .settings-status {
@@ -900,6 +936,19 @@ input:focus {
   align-items: center;
   justify-content: space-between;
   gap: 14px
+}
+
+@media(max-width:700px) {
+  .settings-columns {
+    grid-template-columns: 1fr;
+    gap: 30px
+  }
+
+  .story-schemes {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding: 28px 0 0
+  }
 }
 
 .text-link {

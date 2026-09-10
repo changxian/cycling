@@ -48,11 +48,12 @@ export function editorView(meta, record = {}) {
 
 export function settingsView(config) {
   return `<div class="settings-layout"><div class="page-heading"><div><div class="eyebrow"><span></span> THE WORDS BEHIND THE RIDE</div><h1>AI 配置</h1><p class="lead">连接你的创作搭档。</p></div><span class="heading-icon">${icon('sliders-horizontal')}</span></div>
-    <form id="settings-form" action="/api/config" method="post"><div class="settings-status"><span class="status-dot ${config.has_key ? 'connected' : ''}"></span>${config.has_key ? '配置已保存' : '尚未配置'}</div>
+    <form id="settings-form" action="/api/config" method="post"><div class="settings-columns"><section class="settings-card"><h2>AI 连接</h2><div class="settings-status"><span class="status-dot ${config.has_key ? 'connected' : ''}"></span>${config.has_key ? '配置已保存' : '尚未配置'}</div>
     <label>Base URL <span class="required">必填</span><input type="url" name="base_url" value="${e(config.base_url)}" placeholder="https://api.example.com/v1" required autocomplete="url"></label>
     <label>API Key <span class="required">${config.has_key ? '已保存' : '必填'}</span><span class="password-field"><input type="password" name="api_key" id="api-key" placeholder="${config.has_key ? '留空保留当前密钥' : 'sk-…'}" autocomplete="new-password" ${config.has_key ? '' : 'required'}><button class="icon-button password-toggle" type="button" data-target="api-key" aria-label="显示密钥" title="显示密钥">${icon('eye')}</button></span></label>
     <label>模型名称 <span class="required">选填</span><input name="model" placeholder="gpt-4o" value="${e(config.model)}"></label>
-    <p class="settings-note">${icon('image')}上传照片时，请使用支持图片输入的模型。</p><div id="settings-message" class="notice" role="status" hidden></div>
+    <p class="settings-note">${icon('image')}上传照片时，请使用支持图片输入的模型。</p></section>
+    <section class="settings-card story-schemes"><h2>故事方案配置</h2><p>为某一类型填写参考方案；生成该类型文案时会优先贴近它的叙事、语气和结构。</p>${['funny', 'inspiring', 'poetic', 'suspense', 'cinematic', 'diary'].map(style => `<label>${e(style === 'funny' ? '趣味搞笑' : style === 'inspiring' ? '热血励志' : style === 'poetic' ? '文艺安静' : style === 'suspense' ? '恐怖悬疑' : style === 'cinematic' ? '电影旁白' : '日记随笔')} <span class="required">选填</span><textarea name="story_scheme_${e(style)}" rows="3" maxlength="5000" placeholder="例如：第一人称，先写路况再写心情，结尾留一个轻松的转折。">${e((config.story_schemes || {})[style] || '')}</textarea></label>`).join('')}</section></div><div id="settings-message" class="notice" role="status" hidden></div>
     <div class="settings-actions"><a class="text-link" href="/">${icon('arrow-left')}返回记录</a><button type="submit" class="button primary">${icon('save')}保存配置</button></div></form></div>`;
 }
 

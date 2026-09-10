@@ -1,3 +1,4 @@
+import base64
 import io
 import json
 import re
@@ -97,9 +98,9 @@ def image_upload():
 def test_authentication_and_csrf(client):
     for path in [
         "/cycling/20260907.html",
-        "/tmp/test.jpg",
     ]:
-        assert client.get(path).headers["Location"].endswith("/login")
+        assert client.get(path).status_code == 404
+    assert client.get("/tmp/test.jpg").headers["Location"].endswith("/login")
     assert client.get("/api/config").status_code == 401
     assert client.get("/api/auth/check").status_code == 401
     client.get("/api/session")
@@ -130,6 +131,7 @@ def test_settings_key_is_private_and_persistent(app, client):
         "base_url": "https://ai.example/v1",
         "model": "gpt-4o",
         "has_key": True,
+        "story_schemes": {},
     }
     assert b"private-test-key" not in client.get("/api/config").data
     assert (
@@ -193,6 +195,11 @@ def test_generate_multiple_styles_with_vision_and_edit(app, client, monkeypatch)
     assert edit["distance"] == "56.4" and edit["photos"] == record["photos"]
     assert client.get(result["html_url"]).status_code == 200
     assert client.get("/tmp/" + record["photos"][0]).mimetype == "image/jpeg"
+    client.post("/api/logout", headers={"X-CSRF-Token": token(client)})
+    assert client.get(result["html_url"]).status_code == 200
+    assert client.get("/cycling/photos/" + record["photos"][0]).mimetype == "image/jpeg"
+    assert client.get("/tmp/" + record["photos"][0]).status_code == 302
+    login(client)
     fake_ai(monkeypatch)
     updated = post(
         client,
@@ -219,6 +226,35 @@ def test_optional_fields_and_text_only_request(app, client, monkeypatch):
     assert isinstance(call.call_args.kwargs["json"]["messages"][1]["content"], str)
     assert response.get_json()["record"]["photos"] == []
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", response.get_json()["record"]["date"])
+
+
+def test_story_schemes_are_saved_and_added_to_matching_ai_prompt(client, monkeypatch):
+    configure(client)
+    reference = "第一人称，先写山路，再用平静的留白收尾。"
+    assert post(client, "/api/config", {
+        "base_url": "https://ai.example/v1", "api_key": "", "model": "gpt-4o",
+        "story_scheme_poetic": reference,
+    }).status_code == 200
+    call = fake_ai(monkeypatch, styles=("poetic", "funny"))
+    assert post(client, "/api/generate", {"styles": ["poetic", "funny"]}).status_code == 200
+    payload = json.loads(call.call_args.kwargs["json"]["messages"][1]["content"])
+    assert payload["风格参考方案"] == {"poetic": reference}
+    assert client.get("/api/config").get_json()["story_schemes"] == {"poetic": reference}
+
+
+def test_ai_images_are_compressed_and_multiple_exported_photos_rotate(app, client, monkeypatch):
+    configure(client)
+    call = fake_ai(monkeypatch)
+    response = post(client, "/api/generate", {
+        "date": "2026-09-08", "styles": "poetic",
+        "photos": [image_upload(), image_upload()],
+    })
+    assert response.status_code == 200
+    content = call.call_args.kwargs["json"]["messages"][1]["content"]
+    for part in content[1:]:
+        assert len(base64.b64decode(part["image_url"]["url"].split(",", 1)[1])) < 1024 * 1024
+    html = Path(app.config["OUTPUT_DIR"], "20260908.html").read_text()
+    assert "data-carousel" in html and "/cycling/photos/" in html
 
 
 @pytest.mark.parametrize(

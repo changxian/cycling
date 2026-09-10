@@ -114,6 +114,33 @@ def normalize_base_url(value):
     return value
 
 
+def normalize_story_schemes(source):
+    """Validate per-style reference plans supplied by JSON or the settings form."""
+    raw = source.get("story_schemes", {})
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            raise UserError("故事方案格式无效。")
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise UserError("故事方案格式无效。")
+    schemes = {}
+    for style in STYLE_MAP:
+        value = raw.get(style, source.get("story_scheme_" + style, ""))
+        if not isinstance(value, str):
+            raise UserError("故事方案必须是文本。")
+        value = value.strip()
+        if len(value) > 5000:
+            raise UserError("单个故事方案不能超过 5000 个字符。")
+        if value:
+            schemes[style] = value
+    if any(key not in STYLE_MAP for key in raw):
+        raise UserError("故事方案类型无效。")
+    return schemes
+
+
 def validate_data(source):
     raw_date = (
         source.get("date")
@@ -165,9 +192,16 @@ def generate_copy(config, data, photo_dir):
         "骑行数据": {k: data[k] for k in ["date"] + [m[0] for m in METRICS]},
         "风格": [{"style": s, "名称": STYLE_MAP[s]["label"]} for s in data["styles"]],
     }
+    references = {
+        style: config["story_schemes"].get(style, "")
+        for style in data["styles"]
+        if config["story_schemes"].get(style, "")
+    }
+    if references:
+        prompt["风格参考方案"] = references
     content = [{"type": "text", "text": json.dumps(prompt, ensure_ascii=False)}]
     for name in data["photos"]:
-        encoded = base64.b64encode((photo_dir / name).read_bytes()).decode("ascii")
+        encoded = base64.b64encode(compress_for_ai(photo_dir / name)).decode("ascii")
         content.append(
             {
                 "type": "image_url",
@@ -239,6 +273,29 @@ def generate_copy(config, data, photo_dir):
         raise UserError("AI 返回的内容格式不完整，请重新生成或更换模型。", 502)
 
 
+def compress_for_ai(path):
+    """Return a JPEG payload under 1 MiB for a vision request."""
+    limit = 1024 * 1024
+    with Image.open(path) as original:
+        image = ImageOps.exif_transpose(original).convert("RGB")
+        max_edge = 1600
+        while True:
+            candidate = image.copy()
+            candidate.thumbnail((max_edge, max_edge))
+            for quality in (85, 75, 65, 55, 45):
+                output = io.BytesIO()
+                candidate.save(output, "JPEG", quality=quality, optimize=True)
+                if output.tell() < limit:
+                    return output.getvalue()
+            if max_edge <= 320:
+                # A very noisy image can still be large at low quality; this is
+                # the final, guaranteed-small fallback.
+                output = io.BytesIO()
+                candidate.save(output, "JPEG", quality=30, optimize=True)
+                return output.getvalue()
+            max_edge //= 2
+
+
 class PageMetadata(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -306,13 +363,17 @@ def create_app(test_config=None):
             PRAGMA journal_mode=WAL;
             CREATE TABLE IF NOT EXISTS ai_config (
                 id INTEGER PRIMARY KEY CHECK (id = 1), base_url TEXT NOT NULL,
-                api_key TEXT NOT NULL, model TEXT NOT NULL
+                api_key TEXT NOT NULL, model TEXT NOT NULL,
+                story_schemes TEXT NOT NULL DEFAULT '{}'
             );
             CREATE TABLE IF NOT EXISTS rides (
                 date TEXT PRIMARY KEY, payload TEXT NOT NULL,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        columns = {row[1] for row in db.execute("PRAGMA table_info(ai_config)")}
+        if "story_schemes" not in columns:
+            db.execute("ALTER TABLE ai_config ADD COLUMN story_schemes TEXT NOT NULL DEFAULT '{}'")
     os.chmod(app.config["DATABASE"], 0o600)
 
     @app.before_request
@@ -324,6 +385,8 @@ def create_app(test_config=None):
             "login",
             "session_info",
             "auth_check",
+            "cycling_html",
+            "public_photo",
         ) and not session.get("logged_in"):
             if request.path.startswith(("/cycling/", "/tmp/")):
                 return redirect("/login")
@@ -424,13 +487,14 @@ def create_app(test_config=None):
     def api_config():
         row = (
             get_db()
-            .execute("SELECT base_url, model FROM ai_config WHERE id = 1")
+            .execute("SELECT base_url, model, story_schemes FROM ai_config WHERE id = 1")
             .fetchone()
         )
         return jsonify(
             base_url=row["base_url"] if row else "",
             model=row["model"] if row else "gpt-4o",
             has_key=bool(row),
+            story_schemes=json.loads(row["story_schemes"]) if row else {},
         )
 
     @app.post("/api/config")
@@ -442,6 +506,7 @@ def create_app(test_config=None):
         base_url = normalize_base_url(str(source.get("base_url", "")))
         key = str(source.get("api_key", "")).strip()
         model = str(source.get("model", "")).strip() or "gpt-4o"
+        story_schemes = normalize_story_schemes(source)
         existing = get_db().execute("SELECT * FROM ai_config WHERE id = 1").fetchone()
         if not key and existing:
             if base_url != existing["base_url"]:
@@ -452,8 +517,8 @@ def create_app(test_config=None):
         if len(model) > 200 or len(base_url) > 2000:
             raise UserError("模型名称或地址过长。")
         get_db().execute(
-            "INSERT INTO ai_config VALUES (1, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET base_url=excluded.base_url, api_key=excluded.api_key, model=excluded.model",
-            (base_url, key, model),
+            "INSERT INTO ai_config (id, base_url, api_key, model, story_schemes) VALUES (1, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET base_url=excluded.base_url, api_key=excluded.api_key, model=excluded.model, story_schemes=excluded.story_schemes",
+            (base_url, key, model, json.dumps(story_schemes, ensure_ascii=False)),
         )
         get_db().commit()
         return jsonify(message="AI 配置已保存。")
@@ -566,6 +631,8 @@ def create_app(test_config=None):
         created = []
         try:
             data["photos"] = list(dict.fromkeys(retained)) + save_photos(files, created)
+            config = dict(config)
+            config["story_schemes"] = json.loads(config.get("story_schemes") or "{}")
             data["title"], data["entries"] = generate_copy(
                 config, data, Path(app.config["PHOTO_DIR"])
             )
@@ -641,6 +708,12 @@ def create_app(test_config=None):
         if not FILE_PATTERN.fullmatch(filename):
             abort(404)
         return send_from_directory(app.config["OUTPUT_DIR"], filename)
+
+    @app.get("/cycling/photos/<filename>")
+    def public_photo(filename):
+        if not PHOTO_PATTERN.fullmatch(filename):
+            abort(404)
+        return send_from_directory(app.config["PHOTO_DIR"], filename)
 
     @app.get("/tmp/<filename>")
     def photo(filename):

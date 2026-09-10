@@ -62,7 +62,7 @@ PORT=8001 .venv/bin/python -m backend.app
 
 ## 功能与数据
 
-支持骑行数据选填、多图上传和六种文案风格。每次最多 8 张照片，单张最多 10 MB，总请求最多 40 MB；支持 JPEG、PNG、WebP，上传后转换为最长边 1600px 的 JPEG 并移除 EXIF 元数据。
+支持骑行数据选填、多图上传和六种文案风格。每次最多 8 张照片，单张最多 30 MB，总请求最多 300 MB；支持 JPEG、PNG、WebP，上传后转换为最长边 1600px 的 JPEG 并移除 EXIF 元数据。发送图片给 AI 前，后端会额外压缩为小于 1 MB 的 JPEG 请求载荷；保存及导出的图片不受这一步影响。
 
 Base URL 应包含服务需要的版本前缀，例如 `https://api.openai.com/v1`，也支持完整的 `/chat/completions` 地址。默认模型 `gpt-4o`；上传照片时需要支持图片输入的模型。照片会以 Base64 发送给所配置的服务。未配置真实 AI 时不生成模拟结果。
 
@@ -77,7 +77,7 @@ Base URL 应包含服务需要的版本前缀，例如 `https://api.openai.com/v
 
 生产环境按原需求设置 HTML 目录 `/usr/local/nginx/html/cycling/` 和照片目录 `/usr/local/nginx/html/tmp/`，变量示例见 `.env.example`。应用不自动读取 `.env`，由 shell 或 systemd 注入。
 
-同一天对应一个 HTML 文件，再次成功生成会更新该日记录；修改日期会新增另一日记录。失败请求不会覆盖已有结果，并清理本次新上传的照片。成功记录中被移除的旧照片保留在磁盘，避免历史链接失效。画廊扫描实际 HTML 目录，包括命名有效的历史文件。HTML 内嵌样式，图片路径为 `/tmp/`，迁移时需要同时保留照片。
+同一天对应一个 HTML 文件，再次成功生成会更新该日记录；修改日期会新增另一日记录。失败请求不会覆盖已有结果，并清理本次新上传的照片。成功记录中被移除的旧照片保留在磁盘，避免历史链接失效。画廊扫描实际 HTML 目录，包括命名有效的历史文件。HTML 内嵌样式且可不登录直接访问；多图会以自动轮播方式展示，保留原始宽高比以适配电脑和手机。导出页图片通过公开的 `/cycling/photos/` 路径加载，迁移时需要同时保留照片。
 
 SQLite 包含 API Key，应放在非公开目录中。数据库文件权限为 `0600`；持久化并备份数据库、照片、HTML 和会话密钥。
 
@@ -91,14 +91,14 @@ SQLite 包含 API Key，应放在非公开目录中。数据库文件权限为 `
 | POST | `/api/login` | 账号密码登录，返回新会话状态与 CSRF 令牌 |
 | POST | `/api/logout` | 清除登录状态，返回新的匿名会话令牌 |
 | GET | `/api/meta` | 日期、风格、数据字段、记录数量及配置状态 |
-| GET | `/api/config` | Base URL、模型、`has_key`；不返回密钥 |
+| GET | `/api/config` | Base URL、模型、故事方案、`has_key`；不返回密钥 |
 | POST / PUT | `/api/config` | 保存配置，支持 JSON 或表单 |
 | POST | `/api/generate` | 上传、AI 生成并保存记录；支持 JSON / multipart |
 | GET | `/api/rides` | 磁盘画廊，返回日期倒序的 `items` 数组 |
 | GET | `/api/rides/YYYY-MM-DD` | 返回指定日期的 `record` 和 `filename` |
 | GET | `/api/result?date=YYYY-MM-DD` | 指定或最近生成结果；无最近记录时 `record: null` |
 | GET | `/api/auth/check` | Nginx 会话鉴权，返回 204 或 401 |
-| GET | `/cycling/YYYYMMDD.html` | 登录后访问独立 HTML |
+| GET | `/cycling/YYYYMMDD.html` | 可公开访问的独立 HTML |
 | GET | `/tmp/<ID>.jpg` | 登录后访问照片 |
 
 先调用 `/api/session`，保留会话 Cookie。所有 POST / PUT / PATCH / DELETE 请求必须携带 `X-CSRF-Token`；登录和退出后使用接口返回的新令牌。兼容 multipart 表单内的 `csrf_token`。生成接口返回 `record`、前端结果页 `redirect` 和 `html_url`。错误返回 `{ "error": "说明" }`；会话过期还返回 `redirect: "/login"`。
@@ -116,7 +116,8 @@ SQLite 包含 API Key，应放在非公开目录中。数据库文件权限为 `
            /、/login、/settings、/gallery、/generate -> 前端 index.html
            /assets/、/src/                         -> 前端静态文件
            /api/                                  -> Flask / Gunicorn
-           /cycling/、/tmp/                       -> 静态文件 + 后端鉴权
+           /cycling/                              -> 公开静态 HTML（含公开导出图片）
+           /tmp/                                  -> 登录后访问的后台图片
 ```
 
 项目放在 `/opt/cycling`，创建专用服务用户并准备目录：
@@ -141,7 +142,7 @@ sudo systemctl enable --now cycling
 
 Gunicorn 启动入口是 `backend.wsgi:app`。将 `deploy/nginx.conf` 放入 Nginx `http {}` 下的配置目录，修改域名和前端 `root`，配置 TLS 后执行 `nginx -t` 再重载。Nginx 必须加载 `mime.types`，使 ES 模块以 JavaScript MIME 类型返回。
 
-配置需要 `http_auth_request_module`，可通过 `nginx -V` 检查。HTML、照片由 Nginx 直接提供并通过 `/api/auth/check` 检查登录；不要去掉鉴权。没有该模块时，删除内部 `/_cycling_auth` location，并将 `/cycling/` 和 `/tmp/` 两个 location 的内容改为 `proxy_pass http://127.0.0.1:8000;`，由 Flask 校验和返回文件；保留前端与 `/api/` 的分流。
+配置需要 `http_auth_request_module`，可通过 `nginx -V` 检查。`/cycling/` 生成页及其 `/cycling/photos/` 图片可公开访问；`/tmp/` 后台图片仍通过 `/api/auth/check` 检查登录。没有该模块时，删除内部 `/_cycling_auth` location，并将 `/tmp/` 的内容改为 `proxy_pass http://127.0.0.1:8000;`；保留前端与 `/api/` 的分流。
 
 两个服务可独立发布：前端只需替换 `index.html`、`src/`、`assets/`；后端只需更新 `backend/` 与对应依赖。Nginx 的 `/api/` upstream 可替换为独立后端机器地址。不要把整个仓库或 `instance/` 作为网站根目录。
 
