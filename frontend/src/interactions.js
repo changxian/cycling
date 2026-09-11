@@ -42,6 +42,21 @@ export function initInteractions() {
   document.querySelectorAll('.password-toggle').forEach(button => {
     button.addEventListener('click', () => {
       const input = document.getElementById(button.dataset.target);
+      if (input.dataset.masked === 'true') {
+        input.dataset.masked = 'false';
+        input.readOnly = false;
+        input.removeAttribute('value');
+        input.value = '';
+        input.name = 'api_key';
+        input.placeholder = '请输入新的 API Key';
+        input.required = true;
+        button.setAttribute('aria-label', '显示密钥');
+        button.title = '显示密钥';
+        button.innerHTML = '<i data-lucide="eye"></i>';
+        icons();
+        input.focus();
+        return;
+      }
       input.type = input.type === 'password' ? 'text' : 'password';
       const label = input.type === 'password' ? '显示密码' : '隐藏密码';
       button.setAttribute('aria-label', label);
@@ -61,9 +76,12 @@ export function initInteractions() {
       const result = await postForm(settingsForm.action, new FormData(settingsForm));
       showMessage(message, result.message, true);
       const key = document.getElementById('api-key');
-      key.value = '';
+      key.value = key.dataset.maskedValue || '';
+      key.removeAttribute('name');
+      key.readOnly = true;
+      key.dataset.masked = 'true';
       key.required = false;
-      key.placeholder = '留空保留当前密钥';
+      key.placeholder = '';
       key.closest('label').querySelector('.required').textContent = '已保存';
       settingsForm.querySelector('.settings-status').innerHTML = '<span class="status-dot connected"></span>配置已保存';
     } catch (error) { showMessage(message, error.message); }

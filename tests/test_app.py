@@ -131,6 +131,7 @@ def test_settings_key_is_private_and_persistent(app, client):
         "base_url": "https://ai.example/v1",
         "model": "gpt-4o",
         "has_key": True,
+        "api_key_masked": "priv********-key",
         "story_schemes": {},
     }
     assert b"private-test-key" not in client.get("/api/config").data
@@ -146,6 +147,11 @@ def test_settings_key_is_private_and_persistent(app, client):
         ).status_code
         == 200
     )
+    with app.app_context():
+        stored = sqlite3.connect(app.config["DATABASE"]).execute(
+            "SELECT api_key FROM ai_config WHERE id = 1"
+        ).fetchone()[0]
+    assert stored == "private-test-key"
     assert (
         post(
             client,

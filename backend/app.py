@@ -118,6 +118,15 @@ def normalize_base_url(value):
     return value
 
 
+def mask_api_key(value):
+    """Return a non-reversible display form without exposing the stored key."""
+    if not value:
+        return ""
+    if len(value) <= 8:
+        return "*" * len(value)
+    return f"{value[:4]}{'*' * min(16, len(value) - 8)}{value[-4:]}"
+
+
 def normalize_story_schemes(source):
     """Normalize saved plans; legacy one-string-per-style values remain valid."""
     raw = source.get("story_schemes")
@@ -530,13 +539,14 @@ def create_app(test_config=None):
     def api_config():
         row = (
             get_db()
-            .execute("SELECT base_url, model, story_schemes FROM ai_config WHERE id = 1")
+            .execute("SELECT base_url, api_key, model, story_schemes FROM ai_config WHERE id = 1")
             .fetchone()
         )
         return jsonify(
             base_url=row["base_url"] if row else "",
             model=row["model"] if row else "gpt-4o",
             has_key=bool(row),
+            api_key_masked=mask_api_key(row["api_key"]) if row else "",
             story_schemes=normalize_story_schemes({
                 "story_schemes": json.loads(row["story_schemes"])
             }) if row else {},
