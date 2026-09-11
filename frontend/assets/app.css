@@ -524,11 +524,14 @@ input:focus {
 .journal-input small { display: block; text-align: right; padding-top: 4px; color: #8c9a91; font-size: 11px }
 .music-switch { display: flex; align-items: center; gap: 9px; margin: 15px 0; color: #476354; font-size: 13px; cursor: pointer }
 .music-switch input { position: absolute; opacity: 0 }
-.music-switch span { width: 34px; height: 20px; background: #cbd8d0; border-radius: 12px; position: relative; transition: background .2s }
-.music-switch span:after { content: ''; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; border-radius: 50%; background: white; transition: transform .2s }
+.music-switch input + span { flex: 0 0 34px; width: 34px; height: 20px; background: #cbd8d0; border-radius: 12px; position: relative; transition: background .2s }
+.music-switch input + span:after { content: ''; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; border-radius: 50%; background: white; transition: transform .2s }
 .music-switch input:checked + span { background: var(--green) }.music-switch input:checked + span:after { transform: translateX(14px) }
 .generation-options { margin: -2px 0 18px; padding: 14px 16px; border: 1px solid #dce8df; border-radius: 8px; background: #f5f9f6 }
-.generation-options .music-switch { margin: 0; align-items: flex-start }.generation-options .music-switch > span:last-child { display: grid; gap: 3px; padding-top: 1px }.generation-options .music-switch small { color: #83938a; font-size: 12px }
+.generation-options .music-switch { margin: 0; align-items: center }
+.generation-options .music-switch > span:last-child { display: flex; flex: 1; min-width: 0; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; writing-mode: horizontal-tb }
+.generation-options .music-switch small { color: #83938a; font-size: 12px }
+.music-switch input:focus-visible + span { outline: 2px solid var(--green); outline-offset: 3px }
 .journal-save { width: 100%; justify-content: center }.journal-save svg { width: 17px }
 .edit-actions { min-height: 18px; text-align: right; margin-top: 4px }.cancel-edit { border: 0; background: transparent; color: #688275; cursor: pointer; font-size: 12px; padding: 0 }
 
