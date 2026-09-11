@@ -192,7 +192,9 @@ export function initInteractions() {
     journalSave.disabled = true;
     try {
       await postForm('/api/journals', data);
-      window.location.assign(`/?edit=${encodeURIComponent(form.elements.date.value)}`);
+      // Keep the user in the same editor. Reloading refreshes the saved
+      // carousel without turning this action into a navigation step.
+      window.location.reload();
     } catch (error) { showMessage(journalMessage, error.message); }
     finally { journalSave.disabled = false; }
   });
