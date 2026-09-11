@@ -14,9 +14,22 @@ BACKUP="/var/lib/cycling/backup/frontend-$STAMP"
 [ -d "$ROOT/.git" ] || { echo "$ROOT 不是 git 仓库" >&2; exit 1; }
 [ -d "$DEST" ] || { echo "Nginx 静态根目录不存在：$DEST" >&2; exit 1; }
 
-# 不以 root 身份修改 git 工作树，避免 .git 文件属主被改变。
-DEPLOY_USER="${SUDO_USER:-cycling}"
-sudo -u "$DEPLOY_USER" git -C "$ROOT" pull --ff-only
+# 以 cycling 用户更新 git 工作树（.git 属主是 cycling，root 会留下 root 属主的锁/ref）。
+GIT_USER="${CYCLING_GIT_USER:-cycling}"
+id "$GIT_USER" >/dev/null 2>&1 || GIT_USER="$SUDO_USER"
+sudo -u "$GIT_USER" git -C "$ROOT" pull --ff-only
+
+# 同步：只用 cp/mv/rm，不依赖 rsync。只替换三个目标，删除范围限于 src/ 与 assets/。
+cp -a "$ROOT/frontend/index.html" "$DEST/.index.html.new"
+mv "$DEST/.index.html.new" "$DEST/index.html"
+
+for item in src assets; do
+  if [ -d "$ROOT/frontend/$item" ]; then
+    cp -a "$ROOT/frontend/$item" "$DEST/.sync-$item-new"
+    [ -e "$DEST/$item" ] && rm -rf "$DEST/$item"
+    mv "$DEST/.sync-$item-new" "$DEST/$item"
+  fi
+done
 
 # 仅处理前端文件。不得对 $DEST 执行整体 --delete，那里还包含 cycling/、tmp/ 等数据目录。
 mkdir -p "$BACKUP"
@@ -31,4 +44,4 @@ rsync -a --delete "$ROOT/frontend/src/" "$DEST/src/"
 rsync -a --delete "$ROOT/frontend/assets/" "$DEST/assets/"
 
 echo "前端升级完成，无需重启 Nginx。"
-echo "回滚：rsync -a $BACKUP/index.html $DEST/index.html；再分别恢复 $BACKUP/src/ 与 $BACKUP/assets/。"
+echo "回滚：cp -a $BACKUP/index.html $DEST/；再 cp -a $BACKUP/src $DEST/ 与 $BACKUP/assets $DEST/。"
