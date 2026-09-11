@@ -512,6 +512,7 @@ input:focus {
 .carousel-arrow svg { width: 18px; height: 18px }
 .carousel-count { position: absolute; right: 12px; bottom: 10px; z-index: 3; border-radius: 12px; padding: 3px 8px; color: #fff; background: rgb(0 0 0 / .48); font-size: 11px }
 .text-carousel .carousel-count { color: #587364; background: #e2ece5 }
+.text-carousel .remove-text { margin: 0 42px 12px; min-height: 36px }
 .carousel-empty { margin: 0; padding: 68px 25px; text-align: center; color: #829288; font-size: 13px }
 .pending-photo-names { margin: 10px 0 0; padding: 0; list-style: none; color: #5d7567; font-size: 12px }
 .pending-photo-names:empty { display: none }

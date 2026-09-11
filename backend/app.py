@@ -711,6 +711,26 @@ def create_app(test_config=None):
             abort(404)
         return jsonify(journal=journal_for(ride_date))
 
+    @app.delete("/api/journals/<ride_date>/<kind>/<item_id>")
+    def delete_journal_item(ride_date, kind, item_id):
+        try:
+            date.fromisoformat(ride_date)
+        except ValueError:
+            raise UserError("骑行日期无效。")
+        if kind not in ("photos", "texts"):
+            abort(404)
+        db = get_db()
+        db.execute("BEGIN IMMEDIATE")
+        journal = journal_for(ride_date)
+        items = journal[kind]
+        remaining = [item for item in items if (item if kind == "photos" else item.get("id")) != item_id]
+        if len(remaining) == len(items):
+            db.rollback()
+            raise UserError("记录不存在或已删除，请刷新页面。", 404)
+        journal[kind] = remaining
+        persist_journal(journal)
+        return jsonify(message="已从当天手记中删除。", journal=journal)
+
     @app.post("/api/journals")
     def save_journal():
         source = request.form

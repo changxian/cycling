@@ -1,4 +1,4 @@
-import { postForm } from './api.js';
+import { postForm, request } from './api.js';
 
 export function initInteractions() {
   const icons = () => window.lucide?.createIcons();
@@ -119,6 +119,7 @@ export function initInteractions() {
   const cancelTextEdit = document.getElementById('cancel-text-edit');
   let pendingFiles = [];
   let busy = false;
+  const loadedJournalDate = form.elements.date.value;
   function updatePendingPhotoNames() {
     pendingPhotoNames.replaceChildren(...pendingFiles.map(file => {
       const item = document.createElement('li');
@@ -157,16 +158,55 @@ export function initInteractions() {
   }));
   drop.addEventListener('drop', event => addFiles(Array.from(event.dataTransfer.files)));
   document.querySelectorAll('[data-carousel]').forEach(carousel => {
-    const slides = Array.from(carousel.querySelectorAll('.carousel-slide'));
+    let slides = Array.from(carousel.querySelectorAll('.carousel-slide'));
     if (!slides.length) return;
     let index = 0;
     let timer;
     const count = carousel.querySelector('.carousel-count');
     const show = next => {
+      slides = Array.from(carousel.querySelectorAll('.carousel-slide'));
+      if (!slides.length) {
+        clearInterval(timer);
+        carousel.replaceChildren();
+        const empty = document.createElement('p');
+        empty.className = 'carousel-empty';
+        empty.textContent = '暂无记录，可以继续添加。';
+        carousel.append(empty);
+        return;
+      }
       index = (next + slides.length) % slides.length;
       slides.forEach((slide, i) => slide.classList.toggle('is-active', i === index));
       if (count) count.textContent = `${index + 1} / ${slides.length}`;
     };
+    if (carousel.id === 'text-carousel') {
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'remove-text delete-scheme';
+      remove.textContent = '删除本条文字';
+      carousel.append(remove);
+    }
+    carousel.addEventListener('click', async event => {
+      const remove = event.target.closest('.remove-photo, .remove-text');
+      if (!remove || busy) return;
+      event.stopPropagation();
+      const slide = remove.closest('.carousel-slide') || carousel.querySelector('.carousel-slide.is-active');
+      if (!slide) return;
+      const isPhoto = remove.classList.contains('remove-photo');
+      if (!window.confirm(isPhoto ? '确认从当天手记中删除这张图片？已生成故事中的图片不会改变。' : '确认删除这条文字记录？删除后无法恢复。')) return;
+      busy = true;
+      remove.disabled = true;
+      clearInterval(timer);
+      try {
+        const id = isPhoto ? slide.dataset.retained : slide.dataset.textId;
+        await request(`/api/journals/${encodeURIComponent(loadedJournalDate)}/${isPhoto ? 'photos' : 'texts'}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        if (!isPhoto && document.getElementById('edit-text-id').value === id) cancelTextEdit.click();
+        slide.remove();
+        show(index);
+        document.getElementById('photo-count').textContent = `${document.querySelectorAll('.photo-carousel .carousel-slide').length + pendingFiles.length} 张`;
+        showMessage(journalMessage, '已删除并保存，可继续记录。', true);
+      } catch (error) { showMessage(journalMessage, error.message); }
+      finally { busy = false; remove.disabled = false; }
+    });
     carousel.querySelector('[data-carousel-prev]')?.addEventListener('click', () => show(index - 1));
     carousel.querySelector('[data-carousel-next]')?.addEventListener('click', () => show(index + 1));
     if (!matchMedia('(prefers-reduced-motion: reduce)').matches && slides.length > 1) {
@@ -195,6 +235,7 @@ export function initInteractions() {
     journalText.focus();
   });
   journalSave?.addEventListener('click', async () => {
+    if (busy) return;
     const data = new FormData();
     data.append('date', form.elements.date.value);
     data.append('text', journalText.value);
