@@ -121,15 +121,16 @@ SQLite 包含 API Key，应放在非公开目录中。数据库文件权限为 `
            /tmp/                                  -> 登录后访问的后台图片
 ```
 
-项目放在 `/opt/cycling`，创建专用服务用户并准备目录：
+项目放在 `/opt/cycling`，指定运行服务的用户（本机为 `ubuntu`）并准备目录；如新建专用用户可把下面命令里的 `ubuntu` 换成新用户：
 
 ```sh
-sudo useradd --system --home /opt/cycling --shell /usr/sbin/nologin cycling
-sudo install -d -o cycling -g cycling /var/lib/cycling
-sudo install -d -o cycling -g cycling /usr/local/nginx/html/cycling /usr/local/nginx/html/tmp
-sudo chown -R cycling:cycling /opt/cycling
-sudo -u cycling python3 -m venv /opt/cycling/.venv
-sudo -u cycling /opt/cycling/.venv/bin/pip install -r /opt/cycling/backend/requirements.txt
+# 新建专用用户时才需要：
+# sudo useradd --system --home /opt/cycling --shell /usr/sbin/nologin cycling
+sudo install -d -o ubuntu -g ubuntu /var/lib/cycling
+sudo install -d -o ubuntu -g ubuntu /usr/local/nginx/html/cycling /usr/local/nginx/html/tmp
+sudo chown -R ubuntu:ubuntu /opt/cycling
+sudo -u ubuntu python3 -m venv /opt/cycling/.venv
+sudo -u ubuntu /opt/cycling/.venv/bin/pip install -r /opt/cycling/backend/requirements.txt
 sudo install -m 600 /opt/cycling/.env.example /etc/cycling.env
 ```
 

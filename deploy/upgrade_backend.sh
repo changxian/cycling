@@ -28,8 +28,8 @@ echo "数据备份到 $BACKUP"
 cd "$ROOT"
 git pull --ff-only
 
-# 3. 安装依赖
-sudo -u cycling "$VENV/bin/pip" install -r "$ROOT/backend/requirements.txt"
+# 3. 安装依赖（以服务用户 ubuntu 执行，保持 .venv 属主一致）
+sudo -u ubuntu "$VENV/bin/pip" install -r "$ROOT/backend/requirements.txt"
 
 # 4. 重启服务并检查
 systemctl restart cycling

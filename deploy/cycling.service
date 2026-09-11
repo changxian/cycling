@@ -4,8 +4,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=cycling
-Group=cycling
+User=ubuntu
+Group=ubuntu
 WorkingDirectory=/opt/cycling
 EnvironmentFile=/etc/cycling.env
 ExecStart=/opt/cycling/.venv/bin/gunicorn --workers 2 --threads 4 --timeout 150 --bind 127.0.0.1:8000 backend.wsgi:app
