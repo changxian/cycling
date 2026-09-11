@@ -93,7 +93,7 @@ SQLite 包含 API Key，应放在非公开目录中。数据库文件权限为 `
 | GET | `/api/meta` | 日期、风格、数据字段、记录数量及配置状态 |
 | GET | `/api/config` | Base URL、模型、故事方案、`has_key`；不返回密钥 |
 | POST / PUT | `/api/config` | 保存配置，支持 JSON 或表单 |
-| GET / POST | `/api/story-schemes` | 获取或保存各文案类型的故事方案 |
+| GET / POST | `/api/story-schemes` | 获取各语气的多条故事方案，或为指定语气新增一条方案 |
 | POST | `/api/generate` | 上传、AI 生成并保存记录；支持 JSON / multipart |
 | GET | `/api/rides` | 磁盘画廊，返回日期倒序的 `items` 数组 |
 | GET | `/api/rides/YYYY-MM-DD` | 返回指定日期的 `record` 和 `filename` |
@@ -106,7 +106,7 @@ SQLite 包含 API Key，应放在非公开目录中。数据库文件权限为 `
 
 生成字段：`date`、`distance`、`duration`（如 `02:30`）、`elevation`、`speed`、`cadence`、`heart_rate`、`styles`（必填数组）。风格 ID：`funny`、`inspiring`、`poetic`、`suspense`、`cinematic`、`diary`。Multipart 通过重复字段传多风格和多张 `photos`。编辑时传 `edit_date`、`retained_photos` 数组，仅接受原记录中的照片。
 
-保存配置时，API Key 留空保留原值；更换 Base URL 必须重新输入密钥。密钥不返回前端，也不会写入生成的 HTML。
+保存配置时，API Key 留空保留原值；更换 Base URL 必须重新输入密钥。密钥不返回前端，也不会写入生成的 HTML。故事方案在独立的“故事方案”页面中按语气新增，可为每种语气保存多条；生成时会从每个所选语气的方案中随机选择一条作为写作参考。
 
 原 `/upload`、`/settings/save`、`/logout` 等服务端表单接口已替换为以上 API；外部调用方需要同步修改路径。
 

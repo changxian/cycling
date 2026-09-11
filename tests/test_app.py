@@ -230,16 +230,18 @@ def test_optional_fields_and_text_only_request(app, client, monkeypatch):
 
 def test_story_schemes_are_saved_and_added_to_matching_ai_prompt(client, monkeypatch):
     configure(client)
-    reference = "第一人称，先写山路，再用平静的留白收尾。"
-    assert post(client, "/api/config", {
-        "base_url": "https://ai.example/v1", "api_key": "", "model": "gpt-4o",
-        "story_scheme_poetic": reference,
-    }).status_code == 200
+    references = ["第一人称，先写山路，再用平静的留白收尾。", "从抵达山顶的画面开始倒叙。"]
+    for reference in references:
+        assert post(client, "/api/story-schemes", {
+            "style": "poetic", "scheme_text": reference,
+        }).status_code == 200
+    schemes = client.get("/api/story-schemes").get_json()["story_schemes"]
+    assert [item["text"] for item in schemes["poetic"]] == references[::-1]
     call = fake_ai(monkeypatch, styles=("poetic", "funny"))
     assert post(client, "/api/generate", {"styles": ["poetic", "funny"]}).status_code == 200
     payload = json.loads(call.call_args.kwargs["json"]["messages"][1]["content"])
-    assert payload["风格参考方案"] == {"poetic": reference}
-    assert client.get("/api/config").get_json()["story_schemes"] == {"poetic": reference}
+    assert payload["风格参考方案"]["poetic"] in references
+    assert client.get("/api/config").get_json()["story_schemes"] == schemes
 
 
 def test_ai_images_are_compressed_and_multiple_exported_photos_rotate(app, client, monkeypatch):

@@ -70,6 +70,12 @@ export function initInteractions() {
     finally { button.disabled = false; }
   });
   const storySchemesForm = document.getElementById('story-schemes-form');
+  const schemeStyle = document.getElementById('story-scheme-style');
+  const updateSchemeList = () => document.querySelectorAll('[data-scheme-list]').forEach(list => {
+    list.hidden = list.dataset.schemeList !== schemeStyle?.value;
+  });
+  schemeStyle?.addEventListener('change', updateSchemeList);
+  updateSchemeList();
   storySchemesForm?.addEventListener('submit', async event => {
     event.preventDefault();
     const button = storySchemesForm.querySelector('button[type="submit"]');
@@ -79,6 +85,8 @@ export function initInteractions() {
     try {
       const result = await postForm(storySchemesForm.action, new FormData(storySchemesForm));
       showMessage(message, result.message, true);
+      storySchemesForm.querySelector('textarea[name="scheme_text"]').value = '';
+      window.setTimeout(() => window.location.reload(), 300);
     } catch (error) { showMessage(message, error.message); }
     finally { button.disabled = false; }
   });
