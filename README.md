@@ -146,6 +146,19 @@ Gunicorn 启动入口是 `backend.wsgi:app`。将 `deploy/nginx.conf` 放入 Ngi
 配置需要 `http_auth_request_module`，可通过 `nginx -V` 检查。`/cycling/` 生成页及其 `/cycling/photos/` 图片可公开访问；`/tmp/` 后台图片仍通过 `/api/auth/check` 检查登录。没有该模块时，删除内部 `/_cycling_auth` location，并将 `/tmp/` 的内容改为 `proxy_pass http://127.0.0.1:8000;`；保留前端与 `/api/` 的分流。
 
 两个服务可独立发布：前端只需替换 `index.html`、`src/`、`assets/`；后端只需更新 `backend/` 与对应依赖。Nginx 的 `/api/` upstream 可替换为独立后端机器地址。不要把整个仓库或 `instance/` 作为网站根目录。
+### 升级发布
+
+服务端代码保持 git 仓库形式放在 `/opt/cycling`。`deploy/` 下提供两个发布脚本：
+
+```sh
+# 前端升级：git pull 后同步 frontend/ 到静态根目录，Nginx 直接生效，无需重启
+bash deploy/upgrade_frontend.sh
+
+# 后端升级：备份数据 -> git pull -> 安装依赖 -> 重启 cycling 服务
+sudo bash deploy/upgrade_backend.sh
+```
+
+两个服务可独立发布。后端升级前脚本会把数据库、会话密钥、导出 HTML 和照片目录备份到 `/var/lib/cycling/backup/backend-<时间戳>/`；前端同理备份到 `frontend-<时间戳>/`。升级后先验证登录与 `/api/meta`，再决定是否需要回滚（脚本输出中附有回滚命令）。数据文件（`instance/`、`/usr/local/nginx/html/` 下的内容）不属于代码，升级时不要覆盖，只更新代码与依赖。
 
 ## 验证
 
