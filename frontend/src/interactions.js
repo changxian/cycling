@@ -90,6 +90,20 @@ export function initInteractions() {
     } catch (error) { showMessage(message, error.message); }
     finally { button.disabled = false; }
   });
+  document.querySelectorAll('.delete-scheme').forEach(button => {
+    button.addEventListener('click', async () => {
+      if (!window.confirm('确定删除这条故事方案吗？此操作无法撤销。')) return;
+      button.disabled = true;
+      try {
+        await request(`/api/story-schemes/${encodeURIComponent(button.dataset.schemeId)}`, { method: 'DELETE' });
+        window.location.reload();
+      } catch (error) {
+        const message = document.getElementById('story-schemes-message');
+        if (message) showMessage(message, error.message);
+        button.disabled = false;
+      }
+    });
+  });
   const form = document.getElementById('ride-form');
   if (!form) return;
   const input = document.getElementById('photo-input');

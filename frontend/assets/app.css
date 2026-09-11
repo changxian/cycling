@@ -979,6 +979,11 @@ input:focus {
   font-size: 12px
 }
 
+.scheme-card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px }
+.delete-scheme { display: inline-flex; align-items: center; gap: 4px; border: 0; border-radius: 5px; padding: 5px 7px; background: #fff3f1; color: #aa5649; font: inherit; font-size: 12px; cursor: pointer }
+.delete-scheme:hover { background: #fbe2dd }.delete-scheme:disabled { opacity: .55; cursor: wait }
+.delete-scheme svg { width: 13px; height: 13px }
+
 .scheme-card p {
   white-space: pre-wrap;
   line-height: 1.7;

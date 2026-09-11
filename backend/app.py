@@ -610,6 +610,30 @@ def create_app(test_config=None):
         get_db().commit()
         return jsonify(message="故事方案已添加。", story_schemes=schemes)
 
+    @app.delete("/api/story-schemes/<scheme_id>")
+    def delete_story_scheme(scheme_id):
+        if not re.fullmatch(r"(?:[a-f0-9]{24}|legacy)", scheme_id):
+            raise UserError("故事方案标识无效。")
+        row = get_db().execute("SELECT story_schemes FROM ai_config WHERE id = 1").fetchone()
+        if not row:
+            raise UserError("请先完成 AI 配置。")
+        schemes = normalize_story_schemes({"story_schemes": json.loads(row["story_schemes"])})
+        removed = False
+        for style, entries in list(schemes.items()):
+            remaining = [entry for entry in entries if entry.get("id") != scheme_id]
+            if len(remaining) != len(entries):
+                removed = True
+                if remaining:
+                    schemes[style] = remaining
+                else:
+                    schemes.pop(style)
+                break
+        if not removed:
+            raise UserError("该故事方案不存在或已删除。", 404)
+        get_db().execute("UPDATE ai_config SET story_schemes = ? WHERE id = 1", (json.dumps(schemes, ensure_ascii=False),))
+        get_db().commit()
+        return jsonify(message="故事方案已删除。", story_schemes=schemes)
+
     def save_photos(files, created):
         names = []
         photo_dir = Path(app.config["PHOTO_DIR"])
