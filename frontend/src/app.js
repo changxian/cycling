@@ -1,6 +1,6 @@
 import { request } from './api.js';
 import { initInteractions } from './interactions.js';
-import { navigation, loginView, editorView, settingsView, galleryView, resultView, errorView } from './views.js';
+import { navigation, loginView, editorView, settingsView, storySchemesView, galleryView, resultView, errorView } from './views.js';
 
 async function start() {
   const main = document.getElementById('main-content');
@@ -28,11 +28,16 @@ async function start() {
       if (route === '/') {
         const edit = query.get('edit');
         const record = edit ? (await request(`/api/rides/${encodeURIComponent(edit)}`)).record : {};
+        const journalDate = record.date || meta.today;
+        const journal = (await request(`/api/journals/${encodeURIComponent(journalDate)}`)).journal;
         document.title = '记录骑行 · 骑行时光机';
-        main.innerHTML = editorView(meta, record);
+        main.innerHTML = editorView(meta, record, journal);
       } else if (route === '/settings') {
         document.title = 'AI 配置 · 骑行时光机';
         main.innerHTML = settingsView(await request('/api/config'));
+      } else if (route === '/story-schemes') {
+        document.title = '故事方案配置 · 骑行时光机';
+        main.innerHTML = storySchemesView((await request('/api/story-schemes')).story_schemes);
       } else if (route === '/gallery') {
         document.title = '时光画廊 · 骑行时光机';
         main.innerHTML = galleryView(meta, (await request('/api/rides')).items);

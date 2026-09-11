@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 PUBLIC_ROOT = Path(__file__).resolve().parent
-PAGE_PATHS = {"/", "/login", "/settings", "/gallery", "/generate"}
+PAGE_PATHS = {"/", "/login", "/settings", "/story-schemes", "/gallery", "/generate"}
 HOP_HEADERS = {
     "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
     "te", "trailer", "transfer-encoding", "upgrade", "content-length", "server", "date",

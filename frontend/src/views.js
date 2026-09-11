@@ -7,7 +7,7 @@ const displayDate = date => e(date).replaceAll('-', ' / ');
 const photoUrl = name => `/tmp/${encodeURIComponent(name)}`;
 
 export function navigation(authenticated, route) {
-  const links = [['/', 'circle-plus', '记录骑行'], ['/gallery', 'images', '时光画廊'], ['/settings', 'sliders-horizontal', 'AI 配置']];
+  const links = [['/', 'circle-plus', '记录骑行'], ['/gallery', 'images', '时光画廊'], ['/settings', 'sliders-horizontal', 'AI 配置'], ['/story-schemes', 'book-open', '故事方案']];
   return `<a class="brand" href="/"><span class="brand-icon">${icon('bike')}</span><span>骑行时光机<small>CYCLING JOURNAL</small></span></a>
     ${authenticated ? `<nav aria-label="主导航">${links.map(([href, name, label]) => `<a href="${href}" ${route === href ? 'aria-current="page"' : ''}>${icon(name)}<span>${label}</span></a>`).join('')}</nav>
       <form action="/api/logout" method="post" class="logout-form"><button class="icon-button" aria-label="退出登录" title="退出登录">${icon('log-out')}</button></form>`
@@ -26,18 +26,26 @@ export function loginView() {
     <div class="login-photo"><img src="/assets/cycling.jpg" alt="骑行者穿过松林与群山之间的公路"><div class="photo-caption"><span>ON THE ROAD</span><p>风景在路上，<br>故事在脚下。</p></div><a class="photo-credit" href="https://unsplash.com/photos/rCeH116HQAo" target="_blank" rel="noopener noreferrer">摄影：Kirsten Frank / Unsplash</a></div></div>`;
 }
 
-export function editorView(meta, record = {}) {
+export function editorView(meta, record = {}, journal = {}) {
+  const savedPhotos = journal.photos || record.photos || [];
+  const savedTexts = journal.texts || [];
   return `<div class="workspace"><div class="page-heading"><div><div class="eyebrow"><span></span> A DAY ON TWO WHEELS</div><h1>${record.date ? '再写这一程' : '记录这一程'}</h1><p class="lead">留住沿途风景，也留住此刻的自己。</p></div><span class="date-stamp">${icon('calendar-days')}${displayDate(meta.today)}</span></div>
     <div class="editor-layout"><form id="ride-form" action="/api/generate" method="post" enctype="multipart/form-data">
     <input type="hidden" name="edit_date" value="${e(record.date || '')}">
     <section class="form-section"><div class="section-heading"><span class="section-number">01</span><h2>骑行数据</h2><span class="optional">选填</span></div>
     <div class="metrics-form"><label class="date-field">骑行日期<input type="date" name="date" value="${e(record.date || meta.today)}"></label>
     ${meta.metrics.map(([key, label, unit]) => `<label>${e(label)}<span class="input-unit"><input name="${e(key)}" ${key === 'duration' ? 'type="text" inputmode="text" placeholder="02:30" pattern="[0-9]{1,3}:[0-5][0-9]"' : 'type="number" min="0" max="100000" step="any" placeholder="—"'} value="${e(record[key] ?? '')}"><span>${e(unit)}</span></span></label>`).join('')}</div></section>
-    <section class="form-section"><div class="section-heading"><span class="section-number">02</span><h2>沿途照片</h2><span class="optional">选填</span><span id="photo-count" class="section-meta">${(record.photos || []).length} / 8</span></div>
-      <label class="upload-zone" id="drop-zone" for="photo-input"><span class="upload-icon">${icon('image-plus')}</span><strong>选择照片，留住这一刻</strong><span>JPG、PNG、WebP · 单张最多 30 MB</span><input id="photo-input" class="sr-only" type="file" name="photos" accept="image/jpeg,image/png,image/webp" multiple></label>
-      <div class="photo-preview-grid" id="photo-previews">${(record.photos || []).map((photo, index) => `<div class="photo-preview" data-retained="${e(photo)}"><img src="${photoUrl(photo)}" alt="已保存的骑行照片 ${index + 1}"><input type="hidden" name="retained_photos" value="${e(photo)}"><button type="button" class="remove-photo" aria-label="移除照片 ${index + 1}" title="移除照片">${icon('x')}</button></div>`).join('')}</div>
+    <section class="form-section journey-section"><div class="section-heading"><span class="section-number">02</span><h2>沿途照片</h2><span class="optional">原图展示</span><span id="photo-count" class="section-meta">${savedPhotos.length} 张</span></div>
+      <div class="journal-carousel photo-carousel" data-carousel>${savedPhotos.length ? `<div class="carousel-track">${savedPhotos.map((photo, index) => `<div class="carousel-slide ${index ? '' : 'is-active'}" data-retained="${e(photo)}"><img src="${photoUrl(photo)}" alt="已保存的骑行照片 ${index + 1}"><button type="button" class="remove-photo" aria-label="移除照片 ${index + 1}">${icon('x')}</button></div>`).join('')}</div><button type="button" class="carousel-arrow previous" data-carousel-prev aria-label="上一张">${icon('chevron-left')}</button><button type="button" class="carousel-arrow next" data-carousel-next aria-label="下一张">${icon('chevron-right')}</button><span class="carousel-count">1 / ${savedPhotos.length}</span>` : `<p class="carousel-empty">还没有照片，上传后会在这里轮播。</p>`}</div>
+      <label class="upload-zone" id="drop-zone" for="photo-input"><span class="upload-icon">${icon('image-plus')}</span><strong>上传这一刻的照片</strong><span>JPG、PNG、WebP · 超过 30 MB 将自动压缩</span><input id="photo-input" class="sr-only" type="file" name="photos" accept="image/jpeg,image/png,image/webp" multiple></label>
+      <ul id="pending-photo-names" class="pending-photo-names" aria-live="polite"></ul>
       <p id="photo-error" class="field-error" role="alert" hidden></p></section>
-    <section class="form-section style-section"><div class="section-heading"><span class="section-number">03</span><h2>给故事一种语气</h2><span class="optional">必选 · 可多选</span></div><div class="style-grid">
+    <section class="form-section journey-section"><div class="section-heading"><span class="section-number">03</span><h2>路上事迹</h2><span class="optional">每次最多 1024 字</span></div>
+      <div class="journal-carousel text-carousel" id="text-carousel" data-carousel>${savedTexts.length ? `<div class="carousel-track">${savedTexts.map((entry, index) => `<button type="button" class="carousel-slide text-card ${index ? '' : 'is-active'}" data-text-id="${e(entry.id)}" data-text="${e(entry.text)}"><span>第 ${index + 1} 次记录</span><p>${e(entry.text)}</p><small>点击编辑</small></button>`).join('')}</div><button type="button" class="carousel-arrow previous" data-carousel-prev aria-label="上一条">${icon('chevron-left')}</button><button type="button" class="carousel-arrow next" data-carousel-next aria-label="下一条">${icon('chevron-right')}</button><span class="carousel-count">1 / ${savedTexts.length}</span>` : `<p class="carousel-empty">记录路上遇见的人、风景或小插曲。</p>`}</div>
+      <label class="journal-input">本次记录<textarea id="journal-text" maxlength="1024" placeholder="这一刻发生了什么？"></textarea><small id="text-length">0 / 1024</small></label>
+      <input type="hidden" id="edit-text-id" value=""><div class="edit-actions"><button type="button" class="text-link cancel-edit" id="cancel-text-edit" hidden>取消编辑</button></div><label class="music-switch"><input type="checkbox" id="background-music" ${journal.background_music ? 'checked' : ''}><span></span>生成故事时添加匹配风格的背景音乐</label>
+      <button type="button" class="button secondary journal-save" id="save-journal">${icon('save')}保存本次记录</button><div id="journal-message" class="notice" role="status" hidden></div></section>
+    <section class="form-section style-section"><div class="section-heading"><span class="section-number">04</span><h2>给故事一种语气</h2><span class="optional">必选 · 可多选</span></div><div class="style-grid">
       ${meta.styles.map(style => `<label class="style-option ${e(style.id)}"><input type="checkbox" name="styles" value="${e(style.id)}" ${(record.styles || []).includes(style.id) ? 'checked' : ''}><span class="style-icon">${icon(style.icon)}</span><span class="style-copy"><strong>${e(style.label)}</strong><small>${e(style.description)}</small></span></label>`).join('')}</div></section>
     <div id="form-message" class="notice error" role="alert" hidden></div><div class="submit-row"><span>${icon('sparkles')}<span id="selection-count">选择属于这一程的文案风格</span></span><button type="submit" class="button primary" id="generate-button">${icon('sparkles')}<span>生成骑行故事</span>${icon('arrow-right')}</button></div>
     <div id="generation-status" class="generation-status" role="status" hidden><span class="spinner"></span>正在整理这一程的风景，请稍候…</div></form>
@@ -48,13 +56,19 @@ export function editorView(meta, record = {}) {
 
 export function settingsView(config) {
   return `<div class="settings-layout"><div class="page-heading"><div><div class="eyebrow"><span></span> THE WORDS BEHIND THE RIDE</div><h1>AI 配置</h1><p class="lead">连接你的创作搭档。</p></div><span class="heading-icon">${icon('sliders-horizontal')}</span></div>
-    <form id="settings-form" action="/api/config" method="post"><div class="settings-columns"><section class="settings-card"><h2>AI 连接</h2><div class="settings-status"><span class="status-dot ${config.has_key ? 'connected' : ''}"></span>${config.has_key ? '配置已保存' : '尚未配置'}</div>
+    <form id="settings-form" action="/api/config" method="post"><div class="settings-status"><span class="status-dot ${config.has_key ? 'connected' : ''}"></span>${config.has_key ? '配置已保存' : '尚未配置'}</div>
     <label>Base URL <span class="required">必填</span><input type="url" name="base_url" value="${e(config.base_url)}" placeholder="https://api.example.com/v1" required autocomplete="url"></label>
     <label>API Key <span class="required">${config.has_key ? '已保存' : '必填'}</span><span class="password-field"><input type="password" name="api_key" id="api-key" placeholder="${config.has_key ? '留空保留当前密钥' : 'sk-…'}" autocomplete="new-password" ${config.has_key ? '' : 'required'}><button class="icon-button password-toggle" type="button" data-target="api-key" aria-label="显示密钥" title="显示密钥">${icon('eye')}</button></span></label>
     <label>模型名称 <span class="required">选填</span><input name="model" placeholder="gpt-4o" value="${e(config.model)}"></label>
-    <p class="settings-note">${icon('image')}上传照片时，请使用支持图片输入的模型。</p></section>
-    <section class="settings-card story-schemes"><h2>故事方案配置</h2><p>为某一类型填写参考方案；生成该类型文案时会优先贴近它的叙事、语气和结构。</p>${['funny', 'inspiring', 'poetic', 'suspense', 'cinematic', 'diary'].map(style => `<label>${e(style === 'funny' ? '趣味搞笑' : style === 'inspiring' ? '热血励志' : style === 'poetic' ? '文艺安静' : style === 'suspense' ? '恐怖悬疑' : style === 'cinematic' ? '电影旁白' : '日记随笔')} <span class="required">选填</span><textarea name="story_scheme_${e(style)}" rows="3" maxlength="5000" placeholder="例如：第一人称，先写路况再写心情，结尾留一个轻松的转折。">${e((config.story_schemes || {})[style] || '')}</textarea></label>`).join('')}</section></div><div id="settings-message" class="notice" role="status" hidden></div>
+    <p class="settings-note">${icon('image')}上传照片时，请使用支持图片输入的模型。</p><div id="settings-message" class="notice" role="status" hidden></div>
     <div class="settings-actions"><a class="text-link" href="/">${icon('arrow-left')}返回记录</a><button type="submit" class="button primary">${icon('save')}保存配置</button></div></form></div>`;
+}
+
+export function storySchemesView(schemes = {}) {
+  const styles = [['funny', '趣味搞笑'], ['inspiring', '热血励志'], ['poetic', '文艺安静'], ['suspense', '恐怖悬疑'], ['cinematic', '电影旁白'], ['diary', '日记随笔']];
+  return `<div class="settings-layout story-schemes-layout"><div class="page-heading"><div><div class="eyebrow"><span></span> STORY BLUEPRINTS</div><h1>故事方案配置</h1><p class="lead">为每种故事语气建立你的写作参考。</p></div><span class="heading-icon">${icon('book-open')}</span></div>
+    <form id="story-schemes-form" action="/api/story-schemes" method="post"><p class="settings-note">${icon('sparkles')}保存后，生成该类型文案时会优先贴近相应的叙事、语气和结构。</p><div class="story-scheme-grid">${styles.map(([id, label]) => `<label>${e(label)} <span class="required">选填</span><textarea name="story_scheme_${e(id)}" rows="4" maxlength="5000" placeholder="例如：第一人称，先写路况再写心情，结尾留一个轻松的转折。">${e(schemes[id] || '')}</textarea></label>`).join('')}</div><div id="story-schemes-message" class="notice" role="status" hidden></div>
+    <div class="settings-actions"><a class="text-link" href="/settings">${icon('arrow-left')}AI 配置</a><button type="submit" class="button primary">${icon('save')}保存故事方案</button></div></form></div>`;
 }
 
 export function galleryView(meta, items) {

@@ -83,7 +83,7 @@ SQLite 包含 API Key，应放在非公开目录中。数据库文件权限为 `
 
 ## API 约定
 
-页面路径 `/login`、`/`、`/settings`、`/generate`、`/gallery` 由前端提供。后端业务接口均以 `/api/` 开头，成功与失败都返回 JSON（`/api/auth/check` 除外）；未登录返回 401，不会返回登录页 HTML。
+页面路径 `/login`、`/`、`/settings`、`/story-schemes`、`/generate`、`/gallery` 由前端提供。后端业务接口均以 `/api/` 开头，成功与失败都返回 JSON（`/api/auth/check` 除外）；未登录返回 401，不会返回登录页 HTML。
 
 | 方法 | 路径 | 返回或用途 |
 | --- | --- | --- |
@@ -93,6 +93,7 @@ SQLite 包含 API Key，应放在非公开目录中。数据库文件权限为 `
 | GET | `/api/meta` | 日期、风格、数据字段、记录数量及配置状态 |
 | GET | `/api/config` | Base URL、模型、故事方案、`has_key`；不返回密钥 |
 | POST / PUT | `/api/config` | 保存配置，支持 JSON 或表单 |
+| GET / POST | `/api/story-schemes` | 获取或保存各文案类型的故事方案 |
 | POST | `/api/generate` | 上传、AI 生成并保存记录；支持 JSON / multipart |
 | GET | `/api/rides` | 磁盘画廊，返回日期倒序的 `items` 数组 |
 | GET | `/api/rides/YYYY-MM-DD` | 返回指定日期的 `record` 和 `filename` |
@@ -113,7 +114,7 @@ SQLite 包含 API Key，应放在非公开目录中。数据库文件权限为 `
 
 ```text
 浏览器 -> Nginx
-           /、/login、/settings、/gallery、/generate -> 前端 index.html
+           /、/login、/settings、/story-schemes、/gallery、/generate -> 前端 index.html
            /assets/、/src/                         -> 前端静态文件
            /api/                                  -> Flask / Gunicorn
            /cycling/                              -> 公开静态 HTML（含公开导出图片）

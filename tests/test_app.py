@@ -194,10 +194,10 @@ def test_generate_multiple_styles_with_vision_and_edit(app, client, monkeypatch)
     edit = client.get("/api/rides/2026-09-07").get_json()["record"]
     assert edit["distance"] == "56.4" and edit["photos"] == record["photos"]
     assert client.get(result["html_url"]).status_code == 200
-    assert client.get("/tmp/" + record["photos"][0]).mimetype == "image/jpeg"
+    assert client.get("/tmp/" + record["photos"][0]).mimetype == "image/png"
     client.post("/api/logout", headers={"X-CSRF-Token": token(client)})
     assert client.get(result["html_url"]).status_code == 200
-    assert client.get("/cycling/photos/" + record["photos"][0]).mimetype == "image/jpeg"
+    assert client.get("/cycling/photos/" + record["photos"][0]).mimetype == "image/png"
     assert client.get("/tmp/" + record["photos"][0]).status_code == 302
     login(client)
     fake_ai(monkeypatch)
@@ -375,7 +375,7 @@ def test_missing_configuration_and_protected_assets(client):
 
 def test_backend_only_serves_api_and_artifacts(client):
     login(client)
-    for path in ["/", "/login", "/settings", "/gallery", "/generate", "/static/app.js"]:
+    for path in ["/", "/login", "/settings", "/story-schemes", "/gallery", "/generate", "/static/app.js"]:
         response = client.get(path)
         assert response.status_code == 404
         assert response.is_json

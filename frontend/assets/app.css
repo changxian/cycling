@@ -477,6 +477,58 @@ input:focus {
   height: 16px
 }
 
+.journey-section { overflow: hidden }
+
+.journal-carousel {
+  position: relative;
+  min-height: 190px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #f5f8f5;
+  overflow: hidden;
+  margin-bottom: 14px
+}
+
+.carousel-track { position: relative; min-height: 190px }
+
+.journal-carousel .carousel-slide {
+  display: none;
+  width: 100%;
+  min-height: 190px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left
+}
+
+.journal-carousel .carousel-slide.is-active { display: block }
+.photo-carousel img { display: block; width: 100%; height: 260px; object-fit: contain; background: #18251d }
+.photo-carousel .remove-photo { z-index: 2 }
+.text-card { cursor: pointer; padding: 22px 42px 25px !important }
+.text-card span, .text-card small { color: #5b816d; font-size: 12px }
+.text-card p { margin: 12px 0 16px; color: var(--ink); font-size: 15px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere }
+.carousel-arrow { position: absolute; top: 50%; z-index: 3; transform: translateY(-50%); width: 34px; height: 34px; border: 0; border-radius: 50%; background: rgb(255 255 255 / .92); color: #315744; display: grid; place-items: center; cursor: pointer }
+.carousel-arrow.previous { left: 10px }.carousel-arrow.next { right: 10px }
+.carousel-arrow svg { width: 18px; height: 18px }
+.carousel-count { position: absolute; right: 12px; bottom: 10px; z-index: 3; border-radius: 12px; padding: 3px 8px; color: #fff; background: rgb(0 0 0 / .48); font-size: 11px }
+.text-carousel .carousel-count { color: #587364; background: #e2ece5 }
+.carousel-empty { margin: 0; padding: 68px 25px; text-align: center; color: #829288; font-size: 13px }
+.pending-photo-names { margin: 10px 0 0; padding: 0; list-style: none; color: #5d7567; font-size: 12px }
+.pending-photo-names:empty { display: none }
+.pending-photo-names li { overflow: hidden; padding: 5px 8px 5px 25px; border-radius: 4px; background: #f3f7f4; text-overflow: ellipsis; white-space: nowrap; position: relative }
+.pending-photo-names li + li { margin-top: 4px }
+.pending-photo-names li:before { content: '✓'; position: absolute; left: 9px; color: #468266 }
+.journal-input { display: block; position: relative; font-size: 13px; color: #53665b }
+.journal-input textarea { display: block; box-sizing: border-box; width: 100%; min-height: 120px; resize: vertical; margin-top: 8px; padding: 12px; border: 1px solid #dbe3dd; border-radius: 7px; font: inherit; line-height: 1.65; color: var(--ink) }
+.journal-input small { display: block; text-align: right; padding-top: 4px; color: #8c9a91; font-size: 11px }
+.music-switch { display: flex; align-items: center; gap: 9px; margin: 15px 0; color: #476354; font-size: 13px; cursor: pointer }
+.music-switch input { position: absolute; opacity: 0 }
+.music-switch span { width: 34px; height: 20px; background: #cbd8d0; border-radius: 12px; position: relative; transition: background .2s }
+.music-switch span:after { content: ''; position: absolute; width: 14px; height: 14px; left: 3px; top: 3px; border-radius: 50%; background: white; transition: transform .2s }
+.music-switch input:checked + span { background: var(--green) }.music-switch input:checked + span:after { transform: translateX(14px) }
+.journal-save { width: 100%; justify-content: center }.journal-save svg { width: 17px }
+.edit-actions { min-height: 18px; text-align: right; margin-top: 4px }.cancel-edit { border: 0; background: transparent; color: #688275; cursor: pointer; font-size: 12px; padding: 0 }
+
 .style-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -820,7 +872,7 @@ input:focus {
 }
 
 .settings-layout {
-  max-width: 1120px;
+  max-width: 660px;
   margin: auto;
   padding: 56px 28px 70px
 }
@@ -844,41 +896,27 @@ input:focus {
   padding-top: 24px
 }
 
-.settings-columns {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 28px
-}
-
-.settings-card {
-  min-width: 0
-}
-
-.settings-card h2 {
-  margin: 0 0 18px;
-  font-size: 17px;
-  font-weight: 550
-}
-
-.settings-card>label,
-.story-schemes label {
+#settings-form>label {
   display: block;
-  margin-top: 20px
+  margin-top: 26px
 }
 
-.story-schemes {
-  border-left: 1px solid var(--line);
-  padding-left: 28px
+.story-schemes-layout {
+  max-width: 960px
 }
 
-.story-schemes>p {
-  margin: -4px 0 18px;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.7
+.story-scheme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+  margin-top: 24px
 }
 
-.story-schemes textarea {
+.story-scheme-grid label {
+  display: block
+}
+
+.story-scheme-grid textarea {
   min-height: 78px;
   resize: vertical;
   line-height: 1.55
@@ -936,19 +974,6 @@ input:focus {
   align-items: center;
   justify-content: space-between;
   gap: 14px
-}
-
-@media(max-width:700px) {
-  .settings-columns {
-    grid-template-columns: 1fr;
-    gap: 30px
-  }
-
-  .story-schemes {
-    border-left: 0;
-    border-top: 1px solid var(--line);
-    padding: 28px 0 0
-  }
 }
 
 .text-link {
@@ -1316,6 +1341,10 @@ input:focus {
 }
 
 @media(max-width:700px) {
+  .story-scheme-grid {
+    grid-template-columns: 1fr
+  }
+
   .topbar {
     height: 116px;
     padding: 14px 20px 0;

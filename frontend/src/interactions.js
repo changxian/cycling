@@ -69,70 +69,61 @@ export function initInteractions() {
     } catch (error) { showMessage(message, error.message); }
     finally { button.disabled = false; }
   });
+  const storySchemesForm = document.getElementById('story-schemes-form');
+  storySchemesForm?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const button = storySchemesForm.querySelector('button[type="submit"]');
+    const message = document.getElementById('story-schemes-message');
+    button.disabled = true;
+    message.hidden = true;
+    try {
+      const result = await postForm(storySchemesForm.action, new FormData(storySchemesForm));
+      showMessage(message, result.message, true);
+    } catch (error) { showMessage(message, error.message); }
+    finally { button.disabled = false; }
+  });
   const form = document.getElementById('ride-form');
   if (!form) return;
   const input = document.getElementById('photo-input');
-  const previews = document.getElementById('photo-previews');
   const drop = document.getElementById('drop-zone');
   const photoError = document.getElementById('photo-error');
   const formMessage = document.getElementById('form-message');
   const generateButton = document.getElementById('generate-button');
   const generationStatus = document.getElementById('generation-status');
+  const journalText = document.getElementById('journal-text');
+  const journalSave = document.getElementById('save-journal');
+  const journalMessage = document.getElementById('journal-message');
+  const pendingPhotoNames = document.getElementById('pending-photo-names');
+  const cancelTextEdit = document.getElementById('cancel-text-edit');
   let pendingFiles = [];
   let busy = false;
-  function updatePhotoCount() {
-    document.getElementById('photo-count').textContent = `${previews.children.length} / 8`;
+  function updatePendingPhotoNames() {
+    pendingPhotoNames.replaceChildren(...pendingFiles.map(file => {
+      const item = document.createElement('li');
+      item.textContent = file.name;
+      return item;
+    }));
   }
   function addFiles(files) {
     if (busy) return;
     photoError.hidden = true;
-    if (previews.children.length + files.length > 8) {
-      photoError.textContent = '每次最多上传 8 张照片。';
-      photoError.hidden = false;
-      return;
-    }
     for (const file of files) {
-      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 30 * 1024 * 1024) {
-        photoError.textContent = '请选择 30 MB 以内的 JPG、PNG 或 WebP 照片。';
+      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+        photoError.textContent = '请选择 JPG、PNG 或 WebP 格式的照片。';
         photoError.hidden = false;
         return;
       }
     }
     for (const file of files) {
-      const key = crypto.randomUUID();
-      const objectUrl = URL.createObjectURL(file);
-      pendingFiles.push({ key, file, objectUrl });
-      const preview = document.createElement('div');
-      preview.className = 'photo-preview';
-      preview.dataset.key = key;
-      const image = document.createElement('img');
-      image.src = objectUrl;
-      image.alt = file.name;
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.className = 'remove-photo';
-      remove.setAttribute('aria-label', `移除 ${file.name}`);
-      remove.title = '移除照片';
-      remove.innerHTML = '<i data-lucide="x"></i>';
-      preview.append(image, remove);
-      previews.append(preview);
+      pendingFiles.push(file);
     }
-    icons();
-    updatePhotoCount();
+    updatePendingPhotoNames();
+    document.getElementById('photo-count').textContent = `${document.querySelectorAll('.photo-carousel .carousel-slide').length + pendingFiles.length} 张`;
+    showMessage(journalMessage, `已选择 ${pendingFiles.length} 张照片，点击“保存本次记录”后入库。`, true);
   }
   input.addEventListener('change', () => {
     addFiles(Array.from(input.files));
     input.value = '';
-  });
-  previews.addEventListener('click', event => {
-    const button = event.target.closest('.remove-photo');
-    if (!button || busy) return;
-    const preview = button.closest('.photo-preview');
-    const item = pendingFiles.find(file => file.key === preview.dataset.key);
-    if (item) URL.revokeObjectURL(item.objectUrl);
-    pendingFiles = pendingFiles.filter(file => file.key !== preview.dataset.key);
-    preview.remove();
-    updatePhotoCount();
   });
   ['dragenter', 'dragover'].forEach(name => drop.addEventListener(name, event => {
     event.preventDefault();
@@ -143,6 +134,60 @@ export function initInteractions() {
     drop.classList.remove('dragging');
   }));
   drop.addEventListener('drop', event => addFiles(Array.from(event.dataTransfer.files)));
+  document.querySelectorAll('[data-carousel]').forEach(carousel => {
+    const slides = Array.from(carousel.querySelectorAll('.carousel-slide'));
+    if (!slides.length) return;
+    let index = 0;
+    let timer;
+    const count = carousel.querySelector('.carousel-count');
+    const show = next => {
+      index = (next + slides.length) % slides.length;
+      slides.forEach((slide, i) => slide.classList.toggle('is-active', i === index));
+      if (count) count.textContent = `${index + 1} / ${slides.length}`;
+    };
+    carousel.querySelector('[data-carousel-prev]')?.addEventListener('click', () => show(index - 1));
+    carousel.querySelector('[data-carousel-next]')?.addEventListener('click', () => show(index + 1));
+    if (!matchMedia('(prefers-reduced-motion: reduce)').matches && slides.length > 1) {
+      timer = setInterval(() => show(index + 1), 5000);
+      carousel.addEventListener('pointerenter', () => clearInterval(timer));
+      carousel.addEventListener('pointerleave', () => { timer = setInterval(() => show(index + 1), 5000); });
+    }
+  });
+  journalText?.addEventListener('input', () => {
+    document.getElementById('text-length').textContent = `${journalText.value.length} / 1024`;
+  });
+  document.getElementById('text-carousel')?.addEventListener('click', event => {
+    const card = event.target.closest('[data-text-id]');
+    if (!card) return;
+    journalText.value = card.dataset.text || '';
+    document.getElementById('edit-text-id').value = card.dataset.textId;
+    document.getElementById('text-length').textContent = `${journalText.value.length} / 1024`;
+    cancelTextEdit.hidden = false;
+    journalText.focus();
+  });
+  cancelTextEdit?.addEventListener('click', () => {
+    journalText.value = '';
+    document.getElementById('edit-text-id').value = '';
+    document.getElementById('text-length').textContent = '0 / 1024';
+    cancelTextEdit.hidden = true;
+    journalText.focus();
+  });
+  journalSave?.addEventListener('click', async () => {
+    const data = new FormData();
+    data.append('date', form.elements.date.value);
+    data.append('text', journalText.value);
+    data.append('edit_text_id', document.getElementById('edit-text-id').value);
+    data.append('background_music', document.getElementById('background-music').checked ? '1' : '0');
+    document.querySelectorAll('.photo-carousel [data-retained]').forEach(item => data.append('retained_photos', item.dataset.retained));
+    pendingFiles.forEach(file => data.append('photos', file));
+    if (!journalText.value.trim() && !pendingFiles.length) { showMessage(journalMessage, '先写下一段经历，或选择照片。'); return; }
+    journalSave.disabled = true;
+    try {
+      await postForm('/api/journals', data);
+      window.location.assign(`/?edit=${encodeURIComponent(form.elements.date.value)}`);
+    } catch (error) { showMessage(journalMessage, error.message); }
+    finally { journalSave.disabled = false; }
+  });
   const styleInputs = Array.from(form.querySelectorAll('input[name="styles"]'));
   function updateStyles() {
     const count = styleInputs.filter(input => input.checked).length;
@@ -161,7 +206,9 @@ export function initInteractions() {
     }
     const data = new FormData(form);
     data.delete('photos');
-    pendingFiles.forEach(({ file }) => data.append('photos', file));
+    pendingFiles.forEach(file => data.append('photos', file));
+    document.querySelectorAll('.photo-carousel [data-retained]').forEach(item => data.append('retained_photos', item.dataset.retained));
+    data.set('background_music', document.getElementById('background-music').checked ? '1' : '0');
     busy = true;
     form.setAttribute('aria-busy', 'true');
     const controls = Array.from(form.querySelectorAll('input, button'));

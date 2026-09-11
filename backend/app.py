@@ -69,6 +69,10 @@ STYLES = [
     },
 ]
 STYLE_MAP = {s["id"]: s for s in STYLES}
+MUSIC_MOODS = {
+    "funny": "轻快跳跃", "inspiring": "热血推进", "poetic": "安静氛围",
+    "suspense": "微妙悬疑", "cinematic": "电影感铺陈", "diary": "温暖日常",
+}
 METRICS = [
     ("distance", "骑行距离", "km", "route"),
     ("duration", "骑行时长", "小时:分钟", "clock-3"),
@@ -77,7 +81,7 @@ METRICS = [
     ("cadence", "平均踏频", "rpm", "repeat-2"),
     ("heart_rate", "平均心率", "bpm", "heart-pulse"),
 ]
-PHOTO_PATTERN = re.compile(r"^[a-f0-9]{32}\.jpg$")
+PHOTO_PATTERN = re.compile(r"^[a-f0-9]{32}\.(?:jpg|jpeg|png|webp)$")
 FILE_PATTERN = re.compile(r"^\d{8}\.html$")
 
 
@@ -115,8 +119,10 @@ def normalize_base_url(value):
 
 
 def normalize_story_schemes(source):
-    """Validate per-style reference plans supplied by JSON or the settings form."""
-    raw = source.get("story_schemes", {})
+    """Normalize saved plans; legacy one-string-per-style values remain valid."""
+    raw = source.get("story_schemes")
+    if raw is None:
+        raw = {style: source.get("story_scheme_" + style, "") for style in STYLE_MAP}
     if isinstance(raw, str):
         try:
             raw = json.loads(raw) if raw else {}
@@ -128,14 +134,26 @@ def normalize_story_schemes(source):
         raise UserError("故事方案格式无效。")
     schemes = {}
     for style in STYLE_MAP:
-        value = raw.get(style, source.get("story_scheme_" + style, ""))
-        if not isinstance(value, str):
-            raise UserError("故事方案必须是文本。")
-        value = value.strip()
-        if len(value) > 5000:
-            raise UserError("单个故事方案不能超过 5000 个字符。")
-        if value:
-            schemes[style] = value
+        values = raw.get(style, source.get("story_scheme_" + style, ""))
+        if isinstance(values, str):
+            values = [{"id": "legacy", "text": values, "created_at": "1970-01-01T00:00:00+00:00"}] if values.strip() else []
+        if not isinstance(values, list):
+            raise UserError("故事方案必须是文本列表。")
+        entries = []
+        for value in values:
+            if not isinstance(value, dict) or not isinstance(value.get("text"), str):
+                raise UserError("故事方案必须是文本。")
+            text = value["text"].strip()
+            if len(text) > 5000:
+                raise UserError("单个故事方案不能超过 5000 个字符。")
+            if text:
+                entries.append({
+                    "id": str(value.get("id") or secrets.token_hex(12)),
+                    "text": text,
+                    "created_at": str(value.get("created_at") or "1970-01-01T00:00:00+00:00"),
+                })
+        if entries:
+            schemes[style] = sorted(entries, key=lambda item: item["created_at"], reverse=True)
     if any(key not in STYLE_MAP for key in raw):
         raise UserError("故事方案类型无效。")
     return schemes
@@ -183,6 +201,23 @@ def validate_data(source):
     return data
 
 
+def normalize_journal(source):
+    """Validate one saved, on-the-road journal update."""
+    raw_date = source.get("date") or datetime.now(tz=timezone.utc).astimezone().date().isoformat()
+    try:
+        ride_date = date.fromisoformat(str(raw_date)).isoformat()
+    except (TypeError, ValueError):
+        raise UserError("骑行日期格式应为 YYYY-MM-DD。")
+    text = source.get("text", "")
+    if not isinstance(text, str):
+        raise UserError("记录内容必须是文本。")
+    text = text.strip()
+    if len(text) > 1024:
+        raise UserError("单次文字记录不能超过 1024 个字符。")
+    music = str(source.get("background_music", "")).lower() in ("1", "true", "on", "yes")
+    return ride_date, text, music
+
+
 def generate_copy(config, data, photo_dir):
     base = config["base_url"]
     endpoint = (
@@ -193,12 +228,16 @@ def generate_copy(config, data, photo_dir):
         "风格": [{"style": s, "名称": STYLE_MAP[s]["label"]} for s in data["styles"]],
     }
     references = {
-        style: config["story_schemes"].get(style, "")
+        style: secrets.choice(config["story_schemes"][style])["text"]
         for style in data["styles"]
-        if config["story_schemes"].get(style, "")
+        if config["story_schemes"].get(style)
     }
     if references:
         prompt["风格参考方案"] = references
+    if data.get("journal_entries"):
+        prompt["途中随手记录"] = data["journal_entries"]
+    if data.get("background_music"):
+        prompt["背景音乐"] = "请根据所选风格为故事附上一句简短的氛围音乐建议。"
     content = [{"type": "text", "text": json.dumps(prompt, ensure_ascii=False)}]
     for name in data["photos"]:
         encoded = base64.b64encode(compress_for_ai(photo_dir / name)).decode("ascii")
@@ -370,6 +409,10 @@ def create_app(test_config=None):
                 date TEXT PRIMARY KEY, payload TEXT NOT NULL,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS ride_journals (
+                date TEXT PRIMARY KEY, payload TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
         """)
         columns = {row[1] for row in db.execute("PRAGMA table_info(ai_config)")}
         if "story_schemes" not in columns:
@@ -494,7 +537,9 @@ def create_app(test_config=None):
             base_url=row["base_url"] if row else "",
             model=row["model"] if row else "gpt-4o",
             has_key=bool(row),
-            story_schemes=json.loads(row["story_schemes"]) if row else {},
+            story_schemes=normalize_story_schemes({
+                "story_schemes": json.loads(row["story_schemes"])
+            }) if row else {},
         )
 
     @app.post("/api/config")
@@ -506,8 +551,13 @@ def create_app(test_config=None):
         base_url = normalize_base_url(str(source.get("base_url", "")))
         key = str(source.get("api_key", "")).strip()
         model = str(source.get("model", "")).strip() or "gpt-4o"
-        story_schemes = normalize_story_schemes(source)
         existing = get_db().execute("SELECT * FROM ai_config WHERE id = 1").fetchone()
+        has_story_schemes = "story_schemes" in source or any(
+            "story_scheme_" + style in source for style in STYLE_MAP
+        )
+        story_schemes = normalize_story_schemes(source) if has_story_schemes else normalize_story_schemes({
+            "story_schemes": json.loads(existing["story_schemes"]) if existing else {}
+        })
         if not key and existing:
             if base_url != existing["base_url"]:
                 raise UserError("更换 Base URL 时，请重新输入 API Key。")
@@ -523,31 +573,81 @@ def create_app(test_config=None):
         get_db().commit()
         return jsonify(message="AI 配置已保存。")
 
+    @app.get("/api/story-schemes")
+    def story_schemes():
+        row = get_db().execute(
+            "SELECT story_schemes FROM ai_config WHERE id = 1"
+        ).fetchone()
+        return jsonify(story_schemes=normalize_story_schemes({
+            "story_schemes": json.loads(row["story_schemes"])
+        }) if row else {})
+
+    @app.post("/api/story-schemes")
+    def save_story_schemes():
+        source = request.get_json(silent=True) if request.is_json else request.form
+        if not isinstance(source, dict) and not hasattr(source, "getlist"):
+            raise UserError("故事方案格式无效。")
+        if not get_db().execute("SELECT id FROM ai_config WHERE id = 1").fetchone():
+            raise UserError("请先完成 AI 配置。")
+        style = str(source.get("style", ""))
+        text = str(source.get("scheme_text", "")).strip()
+        if style not in STYLE_MAP:
+            raise UserError("请选择有效的故事语气。")
+        if not text or len(text) > 5000:
+            raise UserError("故事方案不能为空且不能超过 5000 个字符。")
+        row = get_db().execute("SELECT story_schemes FROM ai_config WHERE id = 1").fetchone()
+        schemes = normalize_story_schemes({"story_schemes": json.loads(row["story_schemes"])})
+        schemes.setdefault(style, []).append({
+            "id": secrets.token_hex(12),
+            "text": text,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        schemes = normalize_story_schemes({"story_schemes": schemes})
+        get_db().execute(
+            "UPDATE ai_config SET story_schemes = ? WHERE id = 1",
+            (json.dumps(schemes, ensure_ascii=False),),
+        )
+        get_db().commit()
+        return jsonify(message="故事方案已添加。", story_schemes=schemes)
+
     def save_photos(files, created):
         names = []
         photo_dir = Path(app.config["PHOTO_DIR"])
         for upload in files:
-            raw = upload.read(30 * 1024 * 1024 + 1)
-            if len(raw) > 30 * 1024 * 1024:
-                raise UserError("单张照片不能超过 30 MB。")
+            raw = upload.read()
             try:
                 with warnings.catch_warnings():
                     warnings.simplefilter("error", Image.DecompressionBombWarning)
                     with Image.open(io.BytesIO(raw)) as original:
                         if original.format not in ("JPEG", "PNG", "WEBP"):
                             raise UserError("照片仅支持 JPG、PNG 和 WebP 格式。")
-                        image = ImageOps.exif_transpose(original)
-                        image.thumbnail((1600, 1600))
-                        if image.mode in ("RGBA", "LA") or "transparency" in image.info:
-                            rgba = image.convert("RGBA")
-                            image = Image.new("RGB", rgba.size, "white")
-                            image.paste(rgba, mask=rgba.getchannel("A"))
+                        original.verify()
+                    with Image.open(io.BytesIO(raw)) as original:
+                        fmt = original.format
+                        if len(raw) <= 30 * 1024 * 1024:
+                            payload = raw  # Keep compliant uploads byte-for-byte for story display.
+                            suffix = {"JPEG": ".jpg", "PNG": ".png", "WEBP": ".webp"}[fmt]
                         else:
-                            image = image.convert("RGB")
-                        name = secrets.token_hex(16) + ".jpg"
+                            image = ImageOps.exif_transpose(original).convert("RGB")
+                            edge = max(image.size)
+                            payload = b""
+                            while edge >= 320 and not payload:
+                                candidate = image.copy()
+                                candidate.thumbnail((edge, edge))
+                                for quality in (88, 80, 72, 64, 55, 45):
+                                    output = io.BytesIO()
+                                    candidate.save(output, "JPEG", quality=quality, optimize=True)
+                                    if output.tell() < 30 * 1024 * 1024:
+                                        payload = output.getvalue()
+                                        break
+                                edge //= 2
+                            if not payload or len(payload) >= 30 * 1024 * 1024:
+                                raise UserError("照片压缩后仍无法小于 30 MB，请换一张后重试。")
+                            suffix = ".jpg"
+                        name = secrets.token_hex(16) + suffix
                         path = photo_dir / name
                         created.append(path)
-                        image.save(path, "JPEG", quality=88)
+                        path.write_bytes(payload)
                         names.append(name)
             except (
                 UnidentifiedImageError,
@@ -558,6 +658,63 @@ def create_app(test_config=None):
             ):
                 raise UserError("照片无法读取或像素尺寸过大，请换一张后重试。")
         return names
+
+    def journal_for(ride_date):
+        row = get_db().execute("SELECT payload FROM ride_journals WHERE date = ?", (ride_date,)).fetchone()
+        if not row:
+            # Existing generated rides predate journals; make their images
+            # immediately available to the upgraded same-day editor.
+            ride = parse_record(get_db().execute("SELECT payload FROM rides WHERE date = ?", (ride_date,)).fetchone())
+            return {"date": ride_date, "texts": [], "photos": ride.get("photos", []) if ride else [], "background_music": False}
+        journal = json.loads(row["payload"])
+        journal.setdefault("texts", [])
+        journal.setdefault("photos", [])
+        journal.setdefault("background_music", False)
+        return journal
+
+    def persist_journal(journal):
+        get_db().execute(
+            "INSERT INTO ride_journals (date, payload) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET payload=excluded.payload, updated_at=CURRENT_TIMESTAMP",
+            (journal["date"], json.dumps(journal, ensure_ascii=False)),
+        )
+        get_db().commit()
+
+    @app.get("/api/journals/<ride_date>")
+    def get_journal(ride_date):
+        try:
+            date.fromisoformat(ride_date)
+        except ValueError:
+            abort(404)
+        return jsonify(journal=journal_for(ride_date))
+
+    @app.post("/api/journals")
+    def save_journal():
+        source = request.form
+        ride_date, text, music = normalize_journal(source)
+        journal = journal_for(ride_date)
+        edit_id = str(source.get("edit_text_id", ""))
+        if text:
+            if edit_id:
+                item = next((entry for entry in journal["texts"] if entry.get("id") == edit_id), None)
+                if not item:
+                    raise UserError("该文字记录不存在，请刷新后重试。")
+                item["text"] = text
+            else:
+                journal["texts"].append({"id": secrets.token_hex(12), "text": text})
+        files = [f for f in request.files.getlist("photos") if f.filename]
+        retained = source.getlist("retained_photos")
+        if any(name not in journal["photos"] for name in retained):
+            raise UserError("保留照片无效，请刷新后重试。")
+        created = []
+        try:
+            journal["photos"] = list(dict.fromkeys(retained)) + save_photos(files, created)
+            journal["background_music"] = music
+            persist_journal(journal)
+        except Exception:
+            for path in created:
+                path.unlink(missing_ok=True)
+            raise
+        return jsonify(message="已保存到当天骑行手记。", journal=journal)
 
     def persist_record(data):
         filename = data["date"].replace("-", "") + ".html"
@@ -607,6 +764,7 @@ def create_app(test_config=None):
         if not isinstance(source, dict) and not hasattr(source, "getlist"):
             raise UserError("请求数据格式无效。")
         data = validate_data(source)
+        journal = journal_for(data["date"])
         retained = (
             source.getlist("retained_photos")
             if hasattr(source, "getlist")
@@ -622,21 +780,29 @@ def create_app(test_config=None):
             )
             .fetchone()
         )
-        allowed = original["photos"] if original else []
+        allowed = list(dict.fromkeys((original or {}).get("photos", []) + journal["photos"]))
         if any(not isinstance(n, str) or n not in allowed for n in retained):
             raise UserError("保留照片无效，请重新打开记录编辑。")
         files = [f for f in request.files.getlist("photos") if f.filename]
-        if len(retained) + len(files) > 8:
-            raise UserError("每次最多上传 8 张照片。")
         created = []
         try:
-            data["photos"] = list(dict.fromkeys(retained)) + save_photos(files, created)
+            # A generated story always uses the full saved day journal. Direct
+            # uploads remain supported for the legacy form/API and are saved
+            # into the journal as well.
+            data["photos"] = list(dict.fromkeys(retained or journal["photos"])) + save_photos(files, created)
+            if files:
+                journal["photos"] = list(dict.fromkeys(journal["photos"] + data["photos"]))
+            data["journal_entries"] = [entry["text"] for entry in journal["texts"] if entry.get("text")]
+            data["background_music"] = bool(journal.get("background_music")) or str(source.get("background_music", "")).lower() in ("1", "true", "on", "yes")
+            journal["background_music"] = data["background_music"]
+            data["music_mood"] = MUSIC_MOODS.get(data["styles"][0], "安静氛围") if data["background_music"] else ""
             config = dict(config)
             config["story_schemes"] = json.loads(config.get("story_schemes") or "{}")
             data["title"], data["entries"] = generate_copy(
                 config, data, Path(app.config["PHOTO_DIR"])
             )
             filename = persist_record(data)
+            persist_journal(journal)
         except Exception:
             for path in created:
                 path.unlink(missing_ok=True)
