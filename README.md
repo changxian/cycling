@@ -151,8 +151,8 @@ Gunicorn 启动入口是 `backend.wsgi:app`。将 `deploy/nginx.conf` 放入 Ngi
 服务端代码保持 git 仓库形式放在 `/opt/cycling`。`deploy/` 下提供两个发布脚本：
 
 ```sh
-# 前端升级：git pull 后同步 frontend/ 到静态根目录，Nginx 直接生效，无需重启
-bash deploy/upgrade_frontend.sh
+# 前端升级：同步到 Nginx 的 /usr/local/nginx/html，无需重启
+sudo bash deploy/upgrade_frontend.sh
 
 # 后端升级：备份数据 -> git pull -> 安装依赖 -> 重启 cycling 服务
 sudo bash deploy/upgrade_backend.sh
