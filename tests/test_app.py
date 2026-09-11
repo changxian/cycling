@@ -265,6 +265,16 @@ def test_ai_images_are_compressed_and_multiple_exported_photos_rotate(app, clien
     assert "data-carousel" in html and "/cycling/photos/" in html
 
 
+def test_exported_story_page_has_no_site_navigation(app, client, monkeypatch):
+    configure(client)
+    fake_ai(monkeypatch)
+    post(client, "/api/generate", {"styles": "poetic", "date": "2026-09-07"})
+    html = Path(app.config["OUTPUT_DIR"], "20260907.html").read_text()
+    assert "story-nav" not in html and "story-footer" not in html
+    for label in ("时光画廊", "AI 配置", "回到首页", "所有时光"):
+        assert label not in html
+
+
 @pytest.mark.parametrize(
     "fields",
     [

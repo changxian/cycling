@@ -250,44 +250,9 @@
 }
 
 .standalone-story main {
-  padding: 82px 16px 0
+  padding: 40px 16px 0
 }
 
-.story-nav {
-  position: fixed;
-  inset: 0 0 auto;
-  z-index: 10;
-  min-height: 60px;
-  box-sizing: border-box;
-  background: #fff;
-  border-bottom: 1px solid #dfe8e1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 15px max(20px, calc((100% - 480px)/2));
-  gap: 15px
-}
-
-.story-nav>a {
-  font-size: 16px;
-  font-weight: 600
-}
-
-.story-nav nav {
-  display: flex;
-  gap: 14px;
-  font-size: 12px
-}
-
-.story-footer {
-  max-width: 480px;
-  display: flex;
-  justify-content: space-between;
-  margin: auto;
-  padding: 24px 20px;
-  font-size: 12px;
-  box-sizing: border-box
-}
 
 @media(max-width:520px) {
   .preview-layout {
@@ -313,16 +278,13 @@
   }
 
   .standalone-story main {
-    padding: 76px 12px 0
+    padding: 40px 12px 0
   }
 
   .preview-toolbar>.text-link {
     font-size: 12px
   }
 
-  .story-nav {
-    flex-wrap: wrap
-  }
 }
 
 @media(max-width:350px) {
@@ -339,7 +301,7 @@
   }
 }
 </style></head>
-<body class="standalone-story"><header class="story-nav"><a href="/">骑行时光机</a><nav aria-label="导航"><a href="/gallery">时光画廊</a><a href="/settings">AI 配置</a></nav></header><main><article class="ride-story">
+<body class="standalone-story"><main><article class="ride-story">
   <div class="story-date"><span>骑行手记</span><time datetime="2026-09-10">2026 / 09 / 10</time></div>
   <h1>弯道深处的未知凝视</h1>
   <div class="story-tags"><span>恐怖悬疑</span></div>
@@ -351,4 +313,4 @@
   
   <div class="story-entries"><section class="story-entry"><h2><span>01</span>恐怖悬疑</h2><p>山道蜿蜒向上，混凝土护坡投下冷峻的阴影。前方那个身影似乎总在微妙地变换位置，每一次过弯都像是某种无声的邀请或警告。没有精确的距离记录，没有配速数据，只有2026年9月10日这个日期镌刻在路上。当阳光被山体切割成明暗交错的条纹，车轮碾过每一寸柏油路面，都在追问：这究竟是一场孤独的追逐，还是两个未知轨迹的偶然交汇？山路尽头，答案或许早已埋伏在下一个弯道之后。</p></section></div>
   <div class="story-signoff"><span></span>这一程，已成为时光<span></span></div>
-</article></main><footer class="story-footer"><a href="/">回到首页</a><a href="/gallery">所有时光</a></footer><script>(function(){document.querySelectorAll('[data-carousel]').forEach(function(carousel){var slides=[].slice.call(carousel.querySelectorAll('.story-slide')),count=carousel.querySelector('.carousel-count'),index=0,timer;function show(next){index=(next+slides.length)%slides.length;slides.forEach(function(slide,i){slide.classList.toggle('is-active',i===index);slide.tabIndex=i===index?0:-1});count.textContent=(index+1)+' / '+slides.length}function play(){clearInterval(timer);timer=setInterval(function(){show(index+1)},5000)}carousel.querySelector('[data-carousel-prev]').addEventListener('click',function(){show(index-1);play()});carousel.querySelector('[data-carousel-next]').addEventListener('click',function(){show(index+1);play()});carousel.addEventListener('mouseenter',function(){clearInterval(timer)});carousel.addEventListener('mouseleave',play);carousel.addEventListener('focusin',function(){clearInterval(timer)});carousel.addEventListener('focusout',play);show(0);if(!matchMedia('(prefers-reduced-motion: reduce)').matches)play()})})();</script></body></html>
+</article></main><script>(function(){document.querySelectorAll('[data-carousel]').forEach(function(carousel){var slides=[].slice.call(carousel.querySelectorAll('.story-slide')),count=carousel.querySelector('.carousel-count'),index=0,timer;function show(next){index=(next+slides.length)%slides.length;slides.forEach(function(slide,i){slide.classList.toggle('is-active',i===index);slide.tabIndex=i===index?0:-1});count.textContent=(index+1)+' / '+slides.length}function play(){clearInterval(timer);timer=setInterval(function(){show(index+1)},5000)}carousel.querySelector('[data-carousel-prev]').addEventListener('click',function(){show(index-1);play()});carousel.querySelector('[data-carousel-next]').addEventListener('click',function(){show(index+1);play()});carousel.addEventListener('mouseenter',function(){clearInterval(timer)});carousel.addEventListener('mouseleave',play);carousel.addEventListener('focusin',function(){clearInterval(timer)});carousel.addEventListener('focusout',play);show(0);if(!matchMedia('(prefers-reduced-motion: reduce)').matches)play()})})();</script></body></html>
