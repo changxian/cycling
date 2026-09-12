@@ -83,11 +83,12 @@ SQLite 包含 API Key，应放在非公开目录中。数据库文件权限为 `
 
 ## API 约定
 
-页面路径 `/login`、`/`、`/settings`、`/story-schemes`、`/generate`、`/gallery` 由前端提供。后端业务接口均以 `/api/` 开头，成功与失败都返回 JSON（`/api/auth/check` 除外）；未登录返回 401，不会返回登录页 HTML。
+页面路径 `/login`、`/register`、`/`、`/settings`、`/story-schemes`、`/generate`、`/gallery` 由前端提供。后端业务接口均以 `/api/` 开头，成功与失败都返回 JSON（`/api/auth/check` 除外）；未登录返回 401，不会返回登录页 HTML。
 
 | 方法 | 路径 | 返回或用途 |
 | --- | --- | --- |
-| GET | `/api/session` | 公开接口，返回 `authenticated` 和 `csrf_token` |
+| GET | `/api/session` | 公开接口，返回 `authenticated`、`csrf_token`、`username` 和 `is_admin` |
+| POST | `/api/register` | 提交 `username`、`password`、`confirm_password`，成功后自动登录 |
 | POST | `/api/login` | 账号密码登录，返回新会话状态与 CSRF 令牌 |
 | POST | `/api/logout` | 清除登录状态，返回新的匿名会话令牌 |
 | GET | `/api/meta` | 日期、风格、数据字段、记录数量及配置状态 |
@@ -95,12 +96,12 @@ SQLite 包含 API Key，应放在非公开目录中。数据库文件权限为 `
 | POST / PUT | `/api/config` | 保存配置，支持 JSON 或表单 |
 | GET / POST | `/api/story-schemes` | 获取各语气的多条故事方案，或为指定语气新增一条方案 |
 | POST | `/api/generate` | 上传、AI 生成并保存记录；支持 JSON / multipart |
-| GET | `/api/rides` | 磁盘画廊，返回日期倒序的 `items` 数组 |
+| GET | `/api/rides` | 本账号画廊；root返回全部，按日期倒序返回 `items` 数组 |
 | GET | `/api/rides/YYYY-MM-DD` | 返回指定日期的 `record` 和 `filename` |
 | GET | `/api/result?date=YYYY-MM-DD` | 指定或最近生成结果；无最近记录时 `record: null` |
 | GET | `/api/auth/check` | Nginx 会话鉴权，返回 204 或 401 |
 | GET | `/cycling/YYYYMMDD.html` | 可公开访问的独立 HTML |
-| GET | `/tmp/<ID>.jpg` | 登录后访问照片 |
+| GET | `/tmp/<ID>.jpg` | 本账号照片；root可访问全部 |
 
 先调用 `/api/session`，保留会话 Cookie。所有 POST / PUT / PATCH / DELETE 请求必须携带 `X-CSRF-Token`；登录和退出后使用接口返回的新令牌。兼容 multipart 表单内的 `csrf_token`。生成接口返回 `record`、前端结果页 `redirect` 和 `html_url`。错误返回 `{ "error": "说明" }`；会话过期还返回 `redirect: "/login"`。
 
@@ -176,6 +177,20 @@ sudo bash deploy/upgrade_backend.sh
 
 缓存回归测试：安装 Node.js、Playwright 和 Chrome 后运行 `node --test tests/journal_save.test.cjs`。测试真实浏览器缓存旧视图后再访问新入口的流程，验证图片数量、文字内容和轮播切换。
 # 图片缩略图
+
+## 多账号使用
+
+登录页可进入注册页。账号为3至32位字母、数字或下划线，大小写不区分；密码为8至128位，需再次确认。注册成功自动登录，密码只以哈希存储。
+
+每个账号独立保存手记、AI配置、故事方案和生成结果，普通账号的时光画廊仅展示自己的故事，root可查看所有故事。两人同日生成时继续使用全局递增的 `YYYYMMDD.html`、`YYYYMMDD_2.html` 等文件名，避免覆盖。故事与照片的 `OUTPUT_DIR`、`PHOTO_DIR` 及缩略图目录保持不变。
+
+升级时自动把原来的配置、手记和故事归给管理员，保留旧表与原文件。管理员首次从 `CYCLING_USERNAME` / `CYCLING_PASSWORD` 创建；以后修改 `CYCLING_PASSWORD` 并重启会同步管理员密码，普通账号密码不受影响。升级前的旧会话需重新登录。新注册账号需设置自己的AI配置后生成故事，普通账号只能连接公网AI服务，管理员保留使用内网AI服务的能力。
+
+画廊与私有图片接口按账号鉴权；独立故事HTML及其 `/cycling/photos/` 图片链接沿用现有公开分享行为，持有分享链接的人仍可查看故事。
+
+发布需同步后端、完整前端及 `deploy/nginx.conf`，重启后端，执行 `nginx -t` 后再重载。Nginx的 `/tmp/` 必须代理到后端做图片归属检查，不能继续仅验证“已登录”后直接读取磁盘文件；新增 `/register` 页面及注册接口限流。
+
+## 图片显示
 
 选图或拖放后，待保存照片立即追加到记录页图片轮播，并标注“待保存”。轮播与文件名列表的移除操作同步生效，保存只提交剩余照片；本地预览不会提前上传。浏览器无法解码的格式会显示提示，保存后可查看服务端生成的缩略图。
 

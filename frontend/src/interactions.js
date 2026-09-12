@@ -1,5 +1,5 @@
-import { postForm, request } from './api.js?v=20260912-photo-preview-1';
-import { collectPhotoFiles } from './photo-files.js?v=20260912-photo-preview-1';
+import { postForm, request } from './api.js?v=20260913-accounts-1';
+import { collectPhotoFiles } from './photo-files.js?v=20260913-accounts-1';
 
 export function initInteractions() {
   const icons = () => window.lucide?.createIcons();
@@ -9,16 +9,16 @@ export function initInteractions() {
     element.className = `notice ${success ? 'success' : 'error'}`;
     element.hidden = false;
   };
-  const loginForm = document.getElementById('login-form');
+  const loginForm = document.getElementById('login-form') || document.getElementById('register-form');
   loginForm?.addEventListener('submit', async event => {
     event.preventDefault();
     const button = loginForm.querySelector('button[type="submit"]');
     button.disabled = true;
     try {
-      await postForm('/api/login', new FormData(loginForm));
+      await postForm(loginForm.action, new FormData(loginForm));
       window.location.assign('/');
     } catch (error) {
-      showMessage(document.getElementById('login-message'), error.message);
+      showMessage(loginForm.querySelector('[role="alert"]'), error.message);
     } finally { button.disabled = false; }
   });
   const logoutForm = document.querySelector('.logout-form');

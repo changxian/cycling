@@ -1,28 +1,31 @@
-import { request } from './api.js?v=20260912-photo-preview-1';
-import { initInteractions } from './interactions.js?v=20260912-photo-preview-1';
-import { navigation, loginView, editorView, settingsView, storySchemesView, galleryView, resultView, errorView } from './views.js?v=20260912-photo-preview-1';
+import { request } from './api.js?v=20260913-accounts-1';
+import { initInteractions } from './interactions.js?v=20260913-accounts-1';
+import { navigation, loginView, editorView, settingsView, storySchemesView, galleryView, resultView, errorView } from './views.js?v=20260913-accounts-1';
 
 async function start() {
   const main = document.getElementById('main-content');
   const route = window.location.pathname;
   const query = new URLSearchParams(window.location.search);
   let authenticated = false;
+  let username = '';
+  const authPage = route === '/login' || route === '/register';
   try {
     const session = await request('/api/session');
     authenticated = session.authenticated;
-    if (!authenticated && route !== '/login') {
+    username = session.username || '';
+    if (!authenticated && !authPage) {
       window.location.replace('/login');
       return;
     }
-    if (authenticated && route === '/login') {
+    if (authenticated && authPage) {
       window.location.replace('/');
       return;
     }
-    document.body.classList.toggle('login-page', route === '/login');
-    document.getElementById('navigation').innerHTML = navigation(authenticated, route);
-    if (route === '/login') {
-      document.title = '登录 · 骑行时光机';
-      main.innerHTML = loginView();
+    document.body.classList.toggle('login-page', authPage);
+    document.getElementById('navigation').innerHTML = navigation(authenticated, route, username);
+    if (authPage) {
+      document.title = `${route === '/register' ? '注册' : '登录'} · 骑行时光机`;
+      main.innerHTML = loginView(route === '/register');
     } else {
       const meta = await request('/api/meta');
       if (route === '/') {
@@ -52,7 +55,7 @@ async function start() {
       }
     }
   } catch (error) {
-    document.getElementById('navigation').innerHTML = navigation(authenticated, route);
+    document.getElementById('navigation').innerHTML = navigation(authenticated, route, username);
     main.innerHTML = errorView(error.message);
   } finally {
     main.setAttribute('aria-busy', 'false');

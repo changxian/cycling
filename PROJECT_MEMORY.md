@@ -1,5 +1,15 @@
 # 骑行时光机 · 项目记忆
 
+## 2026-09-13 多账号注册登录与画廊隔离
+- 变更说明：新增注册、多账号登录及账号数据隔离；普通账号只看自己的画廊，root看全部，故事/图片存储目录和全局编号命名规则不变。
+- `backend/accounts.py` 负责初始化账号与兼容迁移：`users` 保存账号、密码哈希和管理员标记；`user_rides` / `user_journals` 以 `(owner_id,date)` 为主键；`user_ai_config` 按owner独立。旧 `rides` / `ride_journals` / `ai_config` 保留，初始化时只补缺失数据给管理员；新写入使用账号表。`story_records` / `story_tasks` 增加owner_id。
+- 管理员首次从现有配置创建，修改CYCLING_PASSWORD并重启同步管理员哈希，普通用户密码不受影响；初始化加写事务锁防止多进程重复创建管理员。旧无user_id会话失效，需重新登录。账号3至32位字母数字下划线、不区分大小写，密码8至128位，使用PBKDF2-SHA256 600000轮哈希；注册确认密码并禁止抢注root/配置管理员名，忽略客户端管理员声明。
+- `/api/register` 成功201并自动登录；会话返回username/is_admin。请求身份取数据库用户记录，配置、手记、结果、任务与私有照片按owner过滤。后台线程显式接收owner_id，防止异步串号。root只在画廊/任务/私有图片上拥有全量查看权限，编辑与AI配置仍定位自己的账号。
+- 独立故事HTML及 `/cycling/photos/` 公开分享行为保留；画廊隔离不等于取消已有分享。普通用户无法在画廊看到历史无归档元数据的磁盘HTML；root仍可看到。
+- 前端 `/register` 复用登录布局，注册校验错误可见，显示当前账号并支持退出重登。缓存全链版本 `20260913-accounts-1`；开发代理及Nginx支持注册页，Nginx私有照片改为代理后端进行owner检查，注册端点沿用限流。
+- `backend/safe_http.py` 限制普通账号AI请求只能访问公网：在连接时校验全部DNS结果、固定连接已校验IP、保留原主机名供TLS验证，禁用环境代理和跳转。配置时直接拒绝私网IP和localhost，域名在实际连接时复核；root保留内网服务能力。此限制由服务端生成public_network_only标记控制。
+- 测试仅使用隔离数据库及模拟AI；浏览器测试服务器为 `tests/accounts_browser_server.py`，只由测试使用。测试产物在被忽略的 `test-results/accounts-*`，不操作真实账号、不上传、不部署、不提交。完成前回归与代码审查结果待本轮最终核验更新。
+
 ## 2026-09-12 待上传图片轮播预览
 - 变更说明：选图与拖放后即时追加到图片轮播，支持轮播和文件名列表双向移除，保存仅提交剩余图片。
 - `interactions.js` 使用本地对象URL预览，不提前上传；`pendingFiles` 为待保存权威列表，待保存幻灯片用 `data-pending-index` 标记，不带 `data-retained`，防止生成时当作已保存图片重复提交。移除和退出页面释放对象URL。

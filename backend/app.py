@@ -32,6 +32,10 @@ from flask import (
 from PIL import Image, ImageOps, UnidentifiedImageError
 import pillow_heif
 from werkzeug.exceptions import HTTPException
+from werkzeug.security import check_password_hash, generate_password_hash
+
+from backend.accounts import initialize_accounts
+from backend.safe_http import is_public_address, post_public
 
 pillow_heif.register_heif_opener()
 
@@ -385,7 +389,8 @@ def ai_chat(config, messages):
         base if base.endswith("/chat/completions") else base + "/chat/completions"
     )
     try:
-        response = requests.post(
+        sender = post_public if config.get("public_network_only") else requests.post
+        response = sender(
             endpoint,
             headers={"Authorization": "Bearer " + config["api_key"]},
             json={"model": config["model"], "messages": messages, "temperature": 0.8},
@@ -558,21 +563,26 @@ def create_app(test_config=None):
         columns = {row[1] for row in db.execute("PRAGMA table_info(ai_config)")}
         if "story_schemes" not in columns:
             db.execute("ALTER TABLE ai_config ADD COLUMN story_schemes TEXT NOT NULL DEFAULT '{}'")
+        initialize_accounts(db, app.config["USERNAME"], app.config["PASSWORD"])
     os.chmod(app.config["DATABASE"], 0o600)
 
     @app.before_request
     def guard_request():
         g.app_database = app.config["DATABASE"]
+        g.user = get_db().execute("SELECT id, username, is_admin FROM users WHERE id = ?", (session.get("user_id"),)).fetchone()
+        g.owner_id = g.user["id"] if g.user else None
+        g.is_admin = bool(g.user and g.user["is_admin"])
         if request.endpoint is None:
             return
         if request.endpoint not in (
             "login",
+            "register",
             "session_info",
             "auth_check",
             "cycling_html",
             "public_photo",
             "public_thumbnail",
-        ) and not session.get("logged_in"):
+        ) and not g.user:
             if request.path.startswith(("/cycling/", "/tmp/")):
                 return redirect("/login")
             return jsonify(error="登录已过期，请重新登录。", redirect="/login"), 401
@@ -624,19 +634,57 @@ def create_app(test_config=None):
 
     @app.get("/api/auth/check")
     def auth_check():
-        return ("", 204) if session.get("logged_in") else ("", 401)
+        return ("", 204) if g.user else ("", 401)
 
     def session_payload():
         if "csrf_token" not in session:
             session["csrf_token"] = secrets.token_hex(32)
         return {
-            "authenticated": bool(session.get("logged_in")),
+            "authenticated": bool(g.user),
             "csrf_token": session["csrf_token"],
+            "username": g.user["username"] if g.user else None,
+            "is_admin": bool(g.user and g.user["is_admin"]),
         }
 
     @app.get("/api/session")
     def session_info():
         return jsonify(session_payload())
+
+    def establish_session(user):
+        session.clear()
+        session["user_id"] = user["id"]
+        session.permanent = True
+        g.user = user
+        g.owner_id = user["id"]
+        g.is_admin = bool(user["is_admin"])
+
+    @app.post("/api/register")
+    def register():
+        source = request.get_json(silent=True) if request.is_json else request.form
+        if not isinstance(source, dict) and not hasattr(source, "getlist"):
+            raise UserError("注册数据格式无效。")
+        username = source.get("username", "")
+        password = source.get("password", "")
+        if not isinstance(username, str) or not re.fullmatch(r"[A-Za-z0-9_]{3,32}", username):
+            raise UserError("账号需为3至32位字母、数字或下划线。")
+        if username.casefold() in {"root", app.config["USERNAME"].casefold()}:
+            raise UserError("该账号为系统保留账号。")
+        if not isinstance(password, str) or not 8 <= len(password) <= 128:
+            raise UserError("密码长度需为8至128位。")
+        if password != source.get("confirm_password"):
+            raise UserError("两次输入的密码不一致。")
+        db = get_db()
+        try:
+            result = db.execute(
+                "INSERT INTO users (username, password_hash) VALUES (?, ?)",
+                (username, generate_password_hash(password, method="pbkdf2:sha256:600000")),
+            )
+            db.commit()
+        except sqlite3.IntegrityError:
+            db.rollback()
+            raise UserError("该账号已被注册。", 409)
+        establish_session(db.execute("SELECT id, username, is_admin FROM users WHERE id = ?", (result.lastrowid,)).fetchone())
+        return jsonify(session_payload()), 201
 
     @app.post("/api/login")
     def login():
@@ -646,23 +694,27 @@ def create_app(test_config=None):
         user, password = source.get("username", ""), source.get("password", "")
         if not isinstance(user, str) or not isinstance(password, str):
             raise UserError("账号和密码必须是文本。")
-        if not (hmac.compare_digest(user.encode(), app.config["USERNAME"].encode())
-                and hmac.compare_digest(password.encode(), app.config["PASSWORD"].encode())):
+        if len(user) > 128 or len(password) > 128:
             raise UserError("账号或密码不正确。", 401)
-        session.clear()
-        session["logged_in"] = True
-        session.permanent = True
+        account = get_db().execute("SELECT * FROM users WHERE username = ?", (user,)).fetchone()
+        if not account or not check_password_hash(account["password_hash"], password):
+            raise UserError("账号或密码不正确。", 401)
+        establish_session(account)
         return jsonify(session_payload())
 
     @app.post("/api/logout")
     def logout():
         session.clear()
+        g.user = None
         return jsonify(session_payload())
+
+    def account_config():
+        return get_db().execute("SELECT * FROM user_ai_config WHERE owner_id = ?", (g.owner_id,)).fetchone()
 
     @app.get("/api/meta")
     def metadata():
-        config = get_db().execute("SELECT id FROM ai_config WHERE id = 1").fetchone()
-        count = get_db().execute("SELECT COUNT(*) FROM story_records").fetchone()[0]
+        config = account_config()
+        count = get_db().execute("SELECT COUNT(*) FROM story_records WHERE owner_id = ? OR ?", (g.owner_id, g.is_admin)).fetchone()[0]
         return jsonify(
             styles=STYLES, metrics=METRICS, configured=bool(config), count=count,
             today=datetime.now(tz=timezone.utc).astimezone().date().isoformat(),
@@ -670,11 +722,7 @@ def create_app(test_config=None):
 
     @app.get("/api/config")
     def api_config():
-        row = (
-            get_db()
-            .execute("SELECT base_url, api_key, model, story_schemes FROM ai_config WHERE id = 1")
-            .fetchone()
-        )
+        row = account_config()
         return jsonify(
             base_url=row["base_url"] if row else "",
             model=row["model"] if row else "gpt-4o",
@@ -692,9 +740,19 @@ def create_app(test_config=None):
         if not isinstance(source, dict) and not hasattr(source, "getlist"):
             raise UserError("配置格式无效。")
         base_url = normalize_base_url(str(source.get("base_url", "")))
+        if not g.is_admin:
+            host = urlsplit(base_url).hostname
+            if host.lower().rstrip('.') == "localhost":
+                raise UserError("普通账号仅可使用公网AI服务地址。")
+            try:
+                public = is_public_address(host)
+            except ValueError:
+                public = True
+            if not public:
+                raise UserError("普通账号仅可使用公网AI服务地址。")
         key = str(source.get("api_key", "")).strip()
         model = str(source.get("model", "")).strip() or "gpt-4o"
-        existing = get_db().execute("SELECT * FROM ai_config WHERE id = 1").fetchone()
+        existing = account_config()
         has_story_schemes = "story_schemes" in source or any(
             "story_scheme_" + style in source for style in STYLE_MAP
         )
@@ -710,17 +768,15 @@ def create_app(test_config=None):
         if len(model) > 200 or len(base_url) > 2000:
             raise UserError("模型名称或地址过长。")
         get_db().execute(
-            "INSERT INTO ai_config (id, base_url, api_key, model, story_schemes) VALUES (1, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET base_url=excluded.base_url, api_key=excluded.api_key, model=excluded.model, story_schemes=excluded.story_schemes",
-            (base_url, key, model, json.dumps(story_schemes, ensure_ascii=False)),
+            "INSERT INTO user_ai_config (owner_id, base_url, api_key, model, story_schemes) VALUES (?, ?, ?, ?, ?) ON CONFLICT(owner_id) DO UPDATE SET base_url=excluded.base_url, api_key=excluded.api_key, model=excluded.model, story_schemes=excluded.story_schemes",
+            (g.owner_id, base_url, key, model, json.dumps(story_schemes, ensure_ascii=False)),
         )
         get_db().commit()
         return jsonify(message="AI 配置已保存。")
 
     @app.get("/api/story-schemes")
     def story_schemes():
-        row = get_db().execute(
-            "SELECT story_schemes FROM ai_config WHERE id = 1"
-        ).fetchone()
+        row = account_config()
         return jsonify(story_schemes=normalize_story_schemes({
             "story_schemes": json.loads(row["story_schemes"])
         }) if row else {})
@@ -730,7 +786,7 @@ def create_app(test_config=None):
         source = request.get_json(silent=True) if request.is_json else request.form
         if not isinstance(source, dict) and not hasattr(source, "getlist"):
             raise UserError("故事方案格式无效。")
-        if not get_db().execute("SELECT id FROM ai_config WHERE id = 1").fetchone():
+        if not account_config():
             raise UserError("请先完成 AI 配置。")
         style = str(source.get("style", ""))
         text = str(source.get("scheme_text", "")).strip()
@@ -738,7 +794,7 @@ def create_app(test_config=None):
             raise UserError("请选择有效的故事语气。")
         if not text or len(text) > 5000:
             raise UserError("故事方案不能为空且不能超过 5000 个字符。")
-        row = get_db().execute("SELECT story_schemes FROM ai_config WHERE id = 1").fetchone()
+        row = account_config()
         schemes = normalize_story_schemes({"story_schemes": json.loads(row["story_schemes"])})
         schemes.setdefault(style, []).append({
             "id": secrets.token_hex(12),
@@ -747,8 +803,8 @@ def create_app(test_config=None):
         })
         schemes = normalize_story_schemes({"story_schemes": schemes})
         get_db().execute(
-            "UPDATE ai_config SET story_schemes = ? WHERE id = 1",
-            (json.dumps(schemes, ensure_ascii=False),),
+            "UPDATE user_ai_config SET story_schemes = ? WHERE owner_id = ?",
+            (json.dumps(schemes, ensure_ascii=False), g.owner_id),
         )
         get_db().commit()
         return jsonify(message="故事方案已添加。", story_schemes=schemes)
@@ -757,7 +813,7 @@ def create_app(test_config=None):
     def delete_story_scheme(scheme_id):
         if not re.fullmatch(r"(?:[a-f0-9]{24}|legacy)", scheme_id):
             raise UserError("故事方案标识无效。")
-        row = get_db().execute("SELECT story_schemes FROM ai_config WHERE id = 1").fetchone()
+        row = account_config()
         if not row:
             raise UserError("请先完成 AI 配置。")
         schemes = normalize_story_schemes({"story_schemes": json.loads(row["story_schemes"])})
@@ -773,7 +829,7 @@ def create_app(test_config=None):
                 break
         if not removed:
             raise UserError("该故事方案不存在或已删除。", 404)
-        get_db().execute("UPDATE ai_config SET story_schemes = ? WHERE id = 1", (json.dumps(schemes, ensure_ascii=False),))
+        get_db().execute("UPDATE user_ai_config SET story_schemes = ? WHERE owner_id = ?", (json.dumps(schemes, ensure_ascii=False), g.owner_id))
         get_db().commit()
         return jsonify(message="故事方案已删除。", story_schemes=schemes)
 
@@ -861,11 +917,11 @@ def create_app(test_config=None):
         return [group["text"] for group in journal.get("groups", []) if group.get("text")]
 
     def journal_for(ride_date):
-        row = get_db().execute("SELECT payload FROM ride_journals WHERE date = ?", (ride_date,)).fetchone()
+        row = get_db().execute("SELECT payload FROM user_journals WHERE owner_id = ? AND date = ?", (g.owner_id, ride_date)).fetchone()
         if not row:
             # Existing generated rides predate journals; make their images
             # immediately available to the upgraded same-day editor.
-            ride = parse_record(get_db().execute("SELECT payload FROM rides WHERE date = ?", (ride_date,)).fetchone())
+            ride = parse_record(get_db().execute("SELECT payload FROM user_rides WHERE owner_id = ? AND date = ?", (g.owner_id, ride_date)).fetchone())
             photos = ride.get("photos", []) if ride else []
             groups = [{"id": "legacy", "text": "", "photos": photos}] if photos else []
             return {"date": ride_date, "groups": groups, "background_music": False}
@@ -880,8 +936,8 @@ def create_app(test_config=None):
             "background_music": journal.get("background_music", False),
         }
         get_db().execute(
-            "INSERT INTO ride_journals (date, payload) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET payload=excluded.payload, updated_at=CURRENT_TIMESTAMP",
-            (journal["date"], json.dumps(payload, ensure_ascii=False)),
+            "INSERT INTO user_journals (owner_id, date, payload) VALUES (?, ?, ?) ON CONFLICT(owner_id, date) DO UPDATE SET payload=excluded.payload, updated_at=CURRENT_TIMESTAMP",
+            (g.owner_id, journal["date"], json.dumps(payload, ensure_ascii=False)),
         )
         if commit:
             get_db().commit()
@@ -891,17 +947,17 @@ def create_app(test_config=None):
         db = get_db()
         db.execute("BEGIN IMMEDIATE")
         running = db.execute(
-            "SELECT task_id FROM story_tasks WHERE date = ? AND status = 'running'",
-            (ride_date,),
+            "SELECT task_id FROM story_tasks WHERE owner_id = ? AND date = ? AND status = 'running'",
+            (g.owner_id, ride_date),
         ).fetchone()
         if running:
             db.rollback()
             raise UserError("今天已有骑行故事正在创建中，请稍候再试。")
         task_id = secrets.token_hex(12)
         db.execute(
-            "INSERT INTO story_tasks (task_id, date, status, total, done, segments, error) "
-            "VALUES (?, ?, 'running', ?, 0, '[]', NULL)",
-            (task_id, ride_date, total),
+            "INSERT INTO story_tasks (owner_id, task_id, date, status, total, done, segments, error) "
+            "VALUES (?, ?, ?, 'running', ?, 0, '[]', NULL)",
+            (g.owner_id, task_id, ride_date, total),
         )
         db.execute(
             "DELETE FROM story_tasks WHERE status IN ('done', 'failed') "
@@ -932,10 +988,11 @@ def create_app(test_config=None):
             )
             get_db().commit()
 
-    def run_story_task(task_id, data, journal, config, units, photo_dir):
+    def run_story_task(task_id, data, journal, config, units, photo_dir, owner_id):
         """Background worker: one AI call per unit, then the final story."""
         with app.app_context():
             g.app_database = app.config["DATABASE"]
+            g.owner_id = owner_id
             segments = []
             references = build_story_references(config, data["styles"])
             try:
@@ -1062,12 +1119,12 @@ def create_app(test_config=None):
             os.chmod(temp_path, 0o644)
             current = journal_for(data["date"])
             db.execute(
-                "INSERT INTO rides (date, payload) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET payload=excluded.payload, updated_at=CURRENT_TIMESTAMP",
-                (data["date"], json.dumps(data, ensure_ascii=False)),
+                "INSERT INTO user_rides (owner_id, date, payload) VALUES (?, ?, ?) ON CONFLICT(owner_id, date) DO UPDATE SET payload=excluded.payload, updated_at=CURRENT_TIMESTAMP",
+                (g.owner_id, data["date"], json.dumps(data, ensure_ascii=False)),
             )
             db.execute(
-                "INSERT INTO story_records (filename, payload) VALUES (?, ?)",
-                (filename, json.dumps(data, ensure_ascii=False)),
+                "INSERT INTO story_records (owner_id, filename, payload) VALUES (?, ?, ?)",
+                (g.owner_id, filename, json.dumps(data, ensure_ascii=False)),
             )
             # 只消费快照中未被修改的组，保留生成期间新写入或编辑的内容。
             current["groups"] = [
@@ -1089,7 +1146,7 @@ def create_app(test_config=None):
 
     @app.post("/api/generate")
     def upload():
-        config = get_db().execute("SELECT * FROM ai_config WHERE id = 1").fetchone()
+        config = account_config()
         if not config:
             raise UserError("请先在 AI 配置中保存 Base URL 和 API Key。")
         source = request.get_json(silent=True) if request.is_json else request.form
@@ -1107,8 +1164,8 @@ def create_app(test_config=None):
         original = parse_record(
             get_db()
             .execute(
-                "SELECT payload FROM rides WHERE date = ?",
-                (str(source.get("edit_date", "")),),
+                "SELECT payload FROM user_rides WHERE owner_id = ? AND date = ?",
+                (g.owner_id, str(source.get("edit_date", ""))),
             )
             .fetchone()
         )
@@ -1130,6 +1187,7 @@ def create_app(test_config=None):
             journal["background_music"] = data["background_music"]
             data["music_mood"] = MUSIC_MOODS.get(data["styles"][0], "安静氛围") if data["background_music"] else ""
             config = dict(config)
+            config["public_network_only"] = not g.is_admin
             config["story_schemes"] = json.loads(config.get("story_schemes") or "{}")
             photo_dir = Path(app.config["PHOTO_DIR"])
             units = story_units(journal)
@@ -1144,7 +1202,7 @@ def create_app(test_config=None):
                 persist_journal(journal)
                 threading.Thread(
                     target=run_story_task,
-                    args=(task["task_id"], data, journal, config, units, photo_dir),
+                    args=(task["task_id"], data, journal, config, units, photo_dir, g.owner_id),
                     daemon=True,
                 ).start()
                 session["last_date"] = data["date"]
@@ -1162,8 +1220,8 @@ def create_app(test_config=None):
     @app.get("/api/story-tasks/<task_id>")
     def get_story_task(task_id):
         row = get_db().execute(
-            "SELECT task_id, date, status, total, done, error FROM story_tasks WHERE task_id = ?",
-            (task_id,),
+            "SELECT task_id, date, status, total, done, error FROM story_tasks WHERE task_id = ? AND (owner_id = ? OR ?)",
+            (task_id, g.owner_id, g.is_admin),
         ).fetchone()
         if not row:
             abort(404)
@@ -1186,7 +1244,7 @@ def create_app(test_config=None):
             return jsonify(record=None)
         record = parse_record(
             get_db()
-            .execute("SELECT payload FROM rides WHERE date = ?", (selected,))
+            .execute("SELECT payload FROM user_rides WHERE owner_id = ? AND date = ?", (g.owner_id, selected))
             .fetchone()
         )
         if not record:
@@ -1198,7 +1256,7 @@ def create_app(test_config=None):
 
     @app.get("/api/rides")
     def gallery():
-        rows = get_db().execute("SELECT filename, payload FROM story_records").fetchall()
+        rows = get_db().execute("SELECT filename, payload FROM story_records WHERE owner_id = ? OR ?", (g.owner_id, g.is_admin)).fetchall()
         records = {row["filename"]: parse_record(row) for row in rows}
         items = []
         paths = [path for path in Path(app.config["OUTPUT_DIR"]).glob("*.html")
@@ -1215,6 +1273,8 @@ def create_app(test_config=None):
             except ValueError:
                 continue
             record = records.get(path.name)
+            if not record and not g.is_admin:
+                continue
             if record:
                 item = dict(record)
                 item["thumbnail"] = (
@@ -1278,12 +1338,28 @@ def create_app(test_config=None):
 
     @app.get("/tmp/thumbs/<filename>")
     def thumbnail(filename):
+        require_photo_owner(filename[:-4] if filename.endswith(".jpg") else "")
         return serve_thumbnail(filename)
+
+    def require_photo_owner(filename):
+        if not PHOTO_PATTERN.fullmatch(filename):
+            abort(404)
+        if g.is_admin:
+            return
+        rows = get_db().execute(
+            "SELECT payload FROM user_journals WHERE owner_id = ? "
+            "UNION ALL SELECT payload FROM story_records WHERE owner_id = ?",
+            (g.owner_id, g.owner_id),
+        ).fetchall()
+        for row in rows:
+            payload = json.loads(row["payload"])
+            if filename in payload.get("photos", []) or any(filename in group.get("photos", []) for group in payload.get("groups", [])):
+                return
+        abort(404)
 
     @app.get("/tmp/<filename>")
     def photo(filename):
-        if not PHOTO_PATTERN.fullmatch(filename):
-            abort(404)
+        require_photo_owner(filename)
         return send_from_directory(app.config["PHOTO_DIR"], filename)
 
     return app

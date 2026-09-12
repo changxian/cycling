@@ -86,6 +86,7 @@ def fake_ai(monkeypatch, title="山风里的骑行", styles=("poetic",)):
         )
     )
     monkeypatch.setattr("backend.app.requests.post", call)
+    monkeypatch.setattr("backend.app.post_public", call)
     return call
 
 
@@ -368,7 +369,7 @@ def test_settings_key_is_private_and_persistent(app, client):
     )
     with app.app_context():
         stored = sqlite3.connect(app.config["DATABASE"]).execute(
-            "SELECT api_key FROM ai_config WHERE id = 1"
+            "SELECT api_key FROM user_ai_config WHERE owner_id = 1"
         ).fetchone()[0]
     assert stored == "private-test-key"
     assert (
@@ -439,7 +440,7 @@ def test_generate_multiple_styles_with_vision_and_edit(app, client, monkeypatch)
     )
     assert updated.status_code == 200
     with sqlite3.connect(app.config["DATABASE"]) as db:
-        assert db.execute("SELECT COUNT(*) FROM rides").fetchone()[0] == 1
+        assert db.execute("SELECT COUNT(*) FROM user_rides").fetchone()[0] == 1
     assert "60" in Path(app.config["OUTPUT_DIR"], "20260907_2.html").read_text()
 
 
@@ -741,7 +742,7 @@ def test_legacy_flat_journal_migrates_to_groups(app, client):
     import sqlite3
     db = sqlite3.connect(app.config["DATABASE"])
     db.execute(
-        "INSERT INTO ride_journals (date, payload) VALUES (?, ?)",
+        "INSERT INTO user_journals (owner_id, date, payload) VALUES (1, ?, ?)",
         ("2026-09-09", json.dumps({"date": "2026-09-09", "texts": [{"id": "a1", "text": "旧文案"}], "photos": ["p1.png", "p2.png"], "background_music": True}, ensure_ascii=False)),
     )
     db.commit()

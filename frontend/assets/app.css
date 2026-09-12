@@ -176,10 +176,15 @@ input {
 }
 
 .logout-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0;
   padding-left: 22px;
   border-left: 1px solid var(--line)
 }
+
+.account-name { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: #5d7567 }
 
 .icon-button {
   display: inline-flex;

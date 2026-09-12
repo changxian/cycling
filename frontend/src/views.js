@@ -6,23 +6,25 @@ const icon = name => `<i data-lucide="${e(name)}"></i>`;
 const displayDate = date => e(date).replaceAll('-', ' / ');
 const photoUrl = name => `/tmp/thumbs/${encodeURIComponent(name)}.jpg`;
 
-export function navigation(authenticated, route) {
+export function navigation(authenticated, route, username = '') {
   const links = [['/', 'circle-plus', '记录骑行'], ['/gallery', 'images', '时光画廊'], ['/settings', 'sliders-horizontal', 'AI 配置'], ['/story-schemes', 'book-open', '故事方案']];
   return `<a class="brand" href="/"><span class="brand-icon">${icon('bike')}</span><span>骑行时光机<small>CYCLING JOURNAL</small></span></a>
     ${authenticated ? `<nav aria-label="主导航">${links.map(([href, name, label]) => `<a href="${href}" ${route === href ? 'aria-current="page"' : ''}>${icon(name)}<span>${label}</span></a>`).join('')}</nav>
-      <form action="/api/logout" method="post" class="logout-form"><button class="icon-button" aria-label="退出登录" title="退出登录">${icon('log-out')}</button></form>`
+      <form action="/api/logout" method="post" class="logout-form"><span class="account-name">${e(username)}</span><button class="icon-button" aria-label="退出登录" title="退出登录">${icon('log-out')}</button></form>`
       : '<span class="nav-note">每一程，都值得被记住。</span>'}`;
 }
 
-export function loginView() {
+export function loginView(register = false) {
+  const action = register ? 'register' : 'login';
   return `<div class="login-layout"><section class="login-form-section">
-    <div class="eyebrow"><span></span> YOUR NEXT CHAPTER</div><h1>骑行时光机</h1><p class="lead">回来，续写你的骑行故事。</p>
-    <form action="/api/login" method="post" class="login-form" id="login-form">
-      <div class="notice error" id="login-message" role="alert" hidden></div>
-      <label>账号<input name="username" autocomplete="username" required placeholder="请输入账号" autofocus></label>
-      <label>密码<span class="password-field"><input type="password" name="password" id="login-password" autocomplete="current-password" required placeholder="请输入密码"><button type="button" class="icon-button password-toggle" data-target="login-password" aria-label="显示密码" title="显示密码">${icon('eye')}</button></span></label>
-      <button class="button primary full" type="submit">登录 ${icon('arrow-right')}</button>
-    </form><span class="login-footnote">${icon('lock-keyhole')} 私人骑行手记</span></section>
+    <div class="eyebrow"><span></span> YOUR NEXT CHAPTER</div><h1>${register ? '注册账号' : '骑行时光机'}</h1><p class="lead">${register ? '开启属于你的骑行故事。' : '回来，续写你的骑行故事。'}</p>
+    <form action="/api/${action}" method="post" class="login-form" id="${action}-form">
+      <div class="notice error" id="${action}-message" role="alert" hidden></div>
+      <label>账号<input name="username" autocomplete="username" required ${register ? 'minlength="3" maxlength="32" pattern="[A-Za-z0-9_]{3,32}" title="3至32位字母、数字或下划线"' : ''} placeholder="${register ? '3至32位字母、数字或下划线' : '请输入账号'}" autofocus></label>
+      <label>密码<span class="password-field"><input type="password" name="password" id="login-password" autocomplete="${register ? 'new-password' : 'current-password'}" ${register ? 'minlength="8" maxlength="128"' : ''} required placeholder="${register ? '请输入8至128位密码' : '请输入密码'}"><button type="button" class="icon-button password-toggle" data-target="login-password" aria-label="显示密码" title="显示密码">${icon('eye')}</button></span></label>
+      ${register ? '<label>确认密码<input type="password" name="confirm_password" autocomplete="new-password" minlength="8" maxlength="128" required placeholder="请再次输入密码"></label>' : ''}
+      <button class="button primary full" type="submit">${register ? '注册并登录' : '登录'} ${icon('arrow-right')}</button>
+    </form><a class="text-link" href="/${register ? 'login' : 'register'}">${register ? '已有账号？去登录' : '还没有账号？立即注册'}</a><span class="login-footnote">${icon('lock-keyhole')} 私人骑行手记</span></section>
     <div class="login-photo"><img src="/assets/cycling.jpg" alt="骑行者穿过松林与群山之间的公路"><div class="photo-caption"><span>ON THE ROAD</span><p>风景在路上，<br>故事在脚下。</p></div><a class="photo-credit" href="https://unsplash.com/photos/rCeH116HQAo" target="_blank" rel="noopener noreferrer">摄影：Kirsten Frank / Unsplash</a></div></div>`;
 }
 

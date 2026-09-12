@@ -2,3 +2,4 @@
 .instance/
 .venv/
 instance/
+test-results/accounts-*/
