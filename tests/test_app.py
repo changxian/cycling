@@ -96,6 +96,80 @@ def image_upload():
     return stream, "ride.png"
 
 
+def test_upload_creates_small_thumbnail_and_preserves_original(app, client):
+    login(client)
+    stream = io.BytesIO()
+    Image.effect_noise((2200, 1600), 100).convert("RGB").save(stream, "PNG")
+    original = stream.getvalue()
+    stream.seek(0)
+    response = post(client, "/api/journals", {
+        "date": "2026-09-12", "photos": (stream, "large.png"),
+    })
+    assert response.status_code == 200
+    name = response.get_json()["journal"]["groups"][0]["photos"][0]
+    thumbnail = Path(app.config["PHOTO_DIR"], "thumbs", name + ".jpg")
+    assert thumbnail.exists()
+    assert 0 < thumbnail.stat().st_size < 200_000
+    assert Path(app.config["PHOTO_DIR"], name).read_bytes() == original
+    assert client.get("/tmp/thumbs/" + name + ".jpg").data == thumbnail.read_bytes()
+    assert client.get("/cycling/photos/" + name).data == original
+
+
+def test_legacy_thumbnail_is_generated_on_request(app, client):
+    name = "a" * 32 + ".png"
+    stream, _ = image_upload()
+    Path(app.config["PHOTO_DIR"], name).write_bytes(stream.getvalue())
+    response = client.get("/cycling/photos/thumbs/" + name + ".jpg")
+    assert response.status_code == 200
+    assert response.mimetype == "image/jpeg"
+    assert len(response.data) < 200_000
+    assert client.get("/cycling/photos/thumbs/" + "b" * 32 + ".png.jpg").status_code == 404
+    assert client.get("/tmp/thumbs/" + name + ".jpg").status_code == 302
+    thumbnail = Path(app.config["PHOTO_DIR"], "thumbs", name + ".jpg")
+    modified = thumbnail.stat().st_mtime_ns
+    assert client.get("/cycling/photos/thumbs/" + name + ".jpg").data == response.data
+    assert thumbnail.stat().st_mtime_ns == modified
+
+
+def test_legacy_story_uses_thumbnail_without_rewriting_archive(app, client):
+    name = "a" * 32 + ".png"
+    html = '<a href="/cycling/photos/' + name + '"><img src="/cycling/photos/' + name + '"></a>'
+    path = Path(app.config["OUTPUT_DIR"], "20260912_2.html")
+    path.write_text(html)
+    response = client.get("/cycling/20260912_2.html")
+    assert response.status_code == 200
+    assert 'src="/cycling/photos/thumbs/' + name + '.jpg"' in response.get_data(as_text=True)
+    assert 'href="/cycling/photos/' + name + '"' in response.get_data(as_text=True)
+    assert path.read_text() == html
+
+
+def test_thumbnail_preserves_orientation_and_transparency(app, client):
+    login(client)
+    stream = io.BytesIO()
+    photo = Image.new("RGBA", (80, 40), (0, 0, 0, 0))
+    exif = Image.Exif()
+    exif[274] = 6
+    photo.save(stream, "PNG", exif=exif)
+    stream.seek(0)
+    response = post(client, "/api/journals", {"date": "2026-09-12", "photos": (stream, "transparent.png")})
+    name = response.get_json()["journal"]["groups"][0]["photos"][0]
+    with Image.open(Path(app.config["PHOTO_DIR"], "thumbs", name + ".jpg")) as thumbnail:
+        assert thumbnail.size == (40, 80)
+        assert thumbnail.getpixel((0, 0)) == (255, 255, 255)
+
+
+def test_export_displays_thumbnail_with_original_link(app, client, monkeypatch):
+    configure(client)
+    fake_ai(monkeypatch)
+    response = post(client, "/api/generate", {"styles": "poetic", "photos": image_upload()})
+    record = response.get_json()["record"]
+    name = record["photos"][0]
+    html = client.get(response.get_json()["html_url"]).get_data(as_text=True)
+    assert 'src="/cycling/photos/thumbs/' + name + '.jpg"' in html
+    assert 'href="/cycling/photos/' + name + '"' in html
+    assert client.get("/api/rides").get_json()["items"][0]["thumbnail"] == "/tmp/thumbs/" + name + ".jpg"
+
+
 @pytest.mark.parametrize(
     ("image_format", "filename", "expected_suffix"),
     [
@@ -473,7 +547,7 @@ def test_upload_validation_and_failed_generation_cleanup(app, client, monkeypatc
     call.side_effect = requests.Timeout()
     failed = post(client, "/api/generate", {"styles": "poetic", "photos": image_upload()})
     assert failed.status_code == 504
-    assert list(Path(app.config["PHOTO_DIR"]).iterdir()) == []
+    assert not [path for path in Path(app.config["PHOTO_DIR"]).rglob("*") if path.is_file()]
     assert list(Path(app.config["OUTPUT_DIR"]).iterdir()) == []
 
 
@@ -509,7 +583,7 @@ def test_invalid_ai_json_preserves_previous_record(app, client, monkeypatch):
         == 502
     )
     assert Path(app.config["OUTPUT_DIR"], "20260907.html").read_bytes() == previous
-    assert not list(Path(app.config["PHOTO_DIR"]).iterdir())
+    assert not [path for path in Path(app.config["PHOTO_DIR"]).rglob("*") if path.is_file()]
 
 
 def test_gallery_scans_disk_and_orders_dates(app, client, monkeypatch):
@@ -590,7 +664,7 @@ def test_atomic_write_rollback(app, client, monkeypatch):
         )
     assert Path(app.config["OUTPUT_DIR"], "20260907.html").read_bytes() == previous
     assert not list(Path(app.config["OUTPUT_DIR"]).glob("*.tmp"))
-    assert not list(Path(app.config["PHOTO_DIR"]).iterdir())
+    assert not [path for path in Path(app.config["PHOTO_DIR"]).rglob("*") if path.is_file()]
 
 
 def test_journal_save_binds_text_and_photos_into_group(app, client):

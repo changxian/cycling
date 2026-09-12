@@ -417,6 +417,24 @@ def ai_chat(config, messages):
     return json.loads(result)
 
 
+def create_thumbnail(path):
+    with Image.open(path) as original:
+        image = ImageOps.exif_transpose(original).convert("RGBA")
+        background = Image.new("RGBA", image.size, "white")
+        image = Image.alpha_composite(background, image).convert("RGB")
+        edge = min(1600, max(image.size))
+        while edge:
+            candidate = image.copy()
+            candidate.thumbnail((edge, edge), Image.Resampling.LANCZOS)
+            for quality in (85, 75, 65, 55, 45, 30):
+                output = io.BytesIO()
+                candidate.save(output, "JPEG", quality=quality, optimize=True)
+                if output.tell() < 200_000:
+                    return output.getvalue()
+            edge //= 2
+    raise UserError("无法生成小于 200KB 的缩略图，请换一张照片。")
+
+
 def compress_for_ai(path):
     """Return a JPEG payload under 1 MiB for a vision request."""
     limit = 1024 * 1024
@@ -453,8 +471,9 @@ class PageMetadata(HTMLParser):
             self.in_title = True
         if tag == "img" and self.thumbnail is None:
             src = attrs.get("src", "")
-            if src.startswith("/tmp/") and PHOTO_PATTERN.fullmatch(src[5:]):
-                self.thumbnail = src
+            match = re.fullmatch(r"/(?:tmp|cycling/photos)/(?:thumbs/)?([a-f0-9]{32}\.(?:jpg|jpeg|png|webp))(?:\.jpg)?", src)
+            if match:
+                self.thumbnail = "/tmp/thumbs/" + match[1] + ".jpg"
 
     def handle_endtag(self, tag):
         if tag == "title":
@@ -552,6 +571,7 @@ def create_app(test_config=None):
             "auth_check",
             "cycling_html",
             "public_photo",
+            "public_thumbnail",
         ) and not session.get("logged_in"):
             if request.path.startswith(("/cycling/", "/tmp/")):
                 return redirect("/login")
@@ -796,6 +816,10 @@ def create_app(test_config=None):
                         path = photo_dir / name
                         created.append(path)
                         path.write_bytes(payload)
+                        thumbnail = photo_dir / "thumbs" / (name + ".jpg")
+                        thumbnail.parent.mkdir(exist_ok=True)
+                        created.append(thumbnail)
+                        thumbnail.write_bytes(create_thumbnail(path))
                         names.append(name)
             except (
                 UnidentifiedImageError,
@@ -1194,7 +1218,7 @@ def create_app(test_config=None):
             if record:
                 item = dict(record)
                 item["thumbnail"] = (
-                    "/tmp/" + record["photos"][0] if record["photos"] else None
+                    "/tmp/thumbs/" + record["photos"][0] + ".jpg" if record["photos"] else None
                 )
                 item["summary"] = record["entries"][0]["text"][:90]
             else:
@@ -1216,13 +1240,45 @@ def create_app(test_config=None):
     def cycling_html(filename):
         if not FILE_PATTERN.fullmatch(filename):
             abort(404)
-        return send_from_directory(app.config["OUTPUT_DIR"], filename)
+        path = Path(app.config["OUTPUT_DIR"], filename)
+        if not path.is_file():
+            abort(404)
+        html = path.read_text(encoding="utf-8")
+        html = re.sub(
+            r'(<img\b[^>]*\bsrc=[\"\'])(?:/tmp/|/cycling/photos/)([a-f0-9]{32}\.(?:jpg|jpeg|png|webp))([\"\'])',
+            r'\1/cycling/photos/thumbs/\2.jpg\3', html,
+        )
+        return app.response_class(html, mimetype="text/html", headers={"Cache-Control": "no-store"})
 
     @app.get("/cycling/photos/<filename>")
     def public_photo(filename):
         if not PHOTO_PATTERN.fullmatch(filename):
             abort(404)
         return send_from_directory(app.config["PHOTO_DIR"], filename)
+
+    def serve_thumbnail(filename):
+        if not filename.endswith(".jpg") or not PHOTO_PATTERN.fullmatch(filename[:-4]):
+            abort(404)
+        photo_dir = Path(app.config["PHOTO_DIR"])
+        original = photo_dir / filename[:-4]
+        if not original.is_file():
+            abort(404)
+        thumbnail = photo_dir / "thumbs" / filename
+        if not thumbnail.is_file():
+            payload = create_thumbnail(original)
+            thumbnail.parent.mkdir(exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=thumbnail.parent, delete=False) as temporary:
+                temporary.write(payload)
+            os.replace(temporary.name, thumbnail)
+        return send_from_directory(thumbnail.parent, filename, mimetype="image/jpeg")
+
+    @app.get("/cycling/photos/thumbs/<filename>")
+    def public_thumbnail(filename):
+        return serve_thumbnail(filename)
+
+    @app.get("/tmp/thumbs/<filename>")
+    def thumbnail(filename):
+        return serve_thumbnail(filename)
 
     @app.get("/tmp/<filename>")
     def photo(filename):
