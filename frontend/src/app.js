@@ -1,6 +1,6 @@
-import { request } from './api.js?v=20260912-groups-1';
-import { initInteractions } from './interactions.js?v=20260912-groups-1';
-import { navigation, loginView, editorView, settingsView, storySchemesView, galleryView, resultView, errorView } from './views.js?v=20260912-groups-1';
+import { request } from './api.js?v=20260912-stories-2';
+import { initInteractions } from './interactions.js?v=20260912-stories-2';
+import { navigation, loginView, editorView, settingsView, storySchemesView, galleryView, resultView, errorView } from './views.js?v=20260912-stories-2';
 
 async function start() {
   const main = document.getElementById('main-content');

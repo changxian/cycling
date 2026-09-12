@@ -196,7 +196,7 @@ def fake_ai_segmented(monkeypatch, styles=("poetic",)):
             payload = json.loads(user)
         calls.append({"prompt": payload, "images": images, "segment": "故事文案正文" in messages[0]["content"]})
         if calls[-1]["segment"]:
-            result = {"text": "第 " + str(len(calls)) + " 段小故事：风里有这一段路。"}
+            result = {"text": ["山风掠过车把，群山渐渐亮起。", "桥下流水映着夕阳。", "停在街角的小店，热茶暖了双手。"][sum(c["segment"] for c in calls) - 1]}
         else:
             result = {"title": "山风里的骑行", "entries": [
                 {"style": style, "text": style + "：风从山间吹来。"} for style in styles
@@ -366,7 +366,7 @@ def test_generate_multiple_styles_with_vision_and_edit(app, client, monkeypatch)
     assert updated.status_code == 200
     with sqlite3.connect(app.config["DATABASE"]) as db:
         assert db.execute("SELECT COUNT(*) FROM rides").fetchone()[0] == 1
-    assert "60" in Path(app.config["OUTPUT_DIR"], "20260907.html").read_text()
+    assert "60" in Path(app.config["OUTPUT_DIR"], "20260907_2.html").read_text()
 
 
 def test_optional_fields_and_text_only_request(app, client, monkeypatch):
@@ -697,3 +697,141 @@ def test_generate_uses_group_texts_and_photos(app, client, monkeypatch):
     assert final_prompt["途中随手记录"] == [item["text"] for item in record["story_segments"]]
     html = Path(app.config["OUTPUT_DIR"], "20260910.html").read_text()
     assert "story-segment--text-only" in html
+
+
+def test_same_day_stories_keep_html_and_clear_consumed_journal(app, client, monkeypatch):
+    configure(client)
+    fake_ai(monkeypatch, title="第一程")
+    saved = save_journal(client, "2026-09-12", "第一程文字", [image_upload()]).get_json()["journal"]
+    first = post(client, "/api/generate", {"date": "2026-09-12", "styles": "poetic"}).get_json()
+    original = Path(app.config["OUTPUT_DIR"], "20260912.html").read_bytes()
+    assert client.get("/api/journals/2026-09-12").get_json()["journal"]["groups"] == []
+    fake_ai(monkeypatch, title="第二程")
+    save_journal(client, "2026-09-12", "第二程文字")
+    second = post(client, "/api/generate", {"date": "2026-09-12", "styles": "poetic"}).get_json()
+    assert second["html_url"] == "/cycling/20260912_2.html"
+    assert Path(app.config["OUTPUT_DIR"], "20260912.html").read_bytes() == original
+    assert second["record"]["photos"] == []
+    assert second["record"]["journal_entries"] == ["第二程文字"]
+    assert client.get(second["html_url"]).status_code == 200
+    assert client.get("/api/result").get_json()["filename"] == "20260912_2.html"
+    items = client.get("/api/rides").get_json()["items"]
+    assert [item["title"] for item in items] == ["第二程", "第一程"]
+    assert client.get("/api/meta").get_json()["count"] == 2
+    assert Path(app.config["PHOTO_DIR"], saved["groups"][0]["photos"][0]).exists()
+
+
+def test_async_story_clears_only_unchanged_consumed_groups(app, client, monkeypatch):
+    import threading
+    configure(client)
+    fake_ai_segmented(monkeypatch)
+    save_journal(client, "2026-09-12", "第一段")
+    save_journal(client, "2026-09-12", "第二段")
+    from backend import app as backend_module
+    original = backend_module.generate_copy
+    entered, resume = threading.Event(), threading.Event()
+
+    def delayed(*args, **kwargs):
+        entered.set()
+        assert resume.wait(5)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(backend_module, "generate_copy", delayed)
+    task = post(client, "/api/generate", {"date": "2026-09-12", "styles": "poetic"}).get_json()["task"]
+    try:
+        assert entered.wait(5)
+        save_journal(client, "2026-09-12", "下一程")
+    finally:
+        resume.set()
+    assert wait_story_task(client, task["task_id"])["status"] == "done"
+    groups = client.get("/api/journals/2026-09-12").get_json()["journal"]["groups"]
+    assert [group["text"] for group in groups] == ["下一程"]
+
+
+def test_direct_upload_clears_carousel_after_first_story(app, client, monkeypatch):
+    configure(client)
+    fake_ai(monkeypatch)
+    result = post(client, "/api/generate", {
+        "date": "2026-09-12", "styles": "poetic", "photos": image_upload(),
+    })
+    assert result.status_code == 200
+    assert client.get("/api/journals/2026-09-12").get_json()["journal"]["groups"] == []
+
+
+@pytest.mark.parametrize("segmented", [False, True])
+def test_generation_failure_keeps_journal(app, client, monkeypatch, segmented):
+    configure(client)
+    save_journal(client, "2026-09-12", "保留的记录", [image_upload()])
+    if segmented:
+        save_journal(client, "2026-09-12", "另一段记录")
+    before = client.get("/api/journals/2026-09-12").get_json()["journal"]
+    monkeypatch.setattr("backend.app.requests.post", Mock(side_effect=requests.ConnectionError()))
+    response = post(client, "/api/generate", {"date": "2026-09-12", "styles": "poetic"})
+    if segmented:
+        assert wait_story_task(client, response.get_json()["task"]["task_id"])["status"] == "failed"
+    else:
+        assert response.status_code == 502
+    assert client.get("/api/journals/2026-09-12").get_json()["journal"] == before
+
+
+def test_existing_html_is_reserved_and_restart_keeps_story_metadata(app, client, monkeypatch):
+    configure(client)
+    fake_ai(monkeypatch, title="新故事")
+    output = Path(app.config["OUTPUT_DIR"])
+    (output / "20260912.html").write_text("<title>旧故事</title>")
+    result = post(client, "/api/generate", {"date": "2026-09-12", "styles": "poetic"}).get_json()
+    assert result["html_url"] == "/cycling/20260912_2.html"
+    assert (output / "20260912.html").read_text() == "<title>旧故事</title>"
+    restarted = create_app(dict(app.config)).test_client()
+    login(restarted)
+    items = restarted.get("/api/rides").get_json()["items"]
+    assert [item["title"] for item in items] == ["新故事", "旧故事"]
+
+
+def test_export_failure_keeps_journal_and_previous_story(app, client, monkeypatch):
+    configure(client)
+    fake_ai(monkeypatch)
+    post(client, "/api/generate", {"date": "2026-09-12", "styles": "poetic"})
+    original = Path(app.config["OUTPUT_DIR"], "20260912.html").read_bytes()
+    save_journal(client, "2026-09-12", "不能丢失的记录")
+    before = client.get("/api/journals/2026-09-12").get_json()["journal"]
+    monkeypatch.setattr("backend.app.os.replace", Mock(side_effect=OSError("模拟写入失败")))
+    with pytest.raises(OSError, match="模拟写入失败"):
+        post(client, "/api/generate", {"date": "2026-09-12", "styles": "poetic"})
+    assert client.get("/api/journals/2026-09-12").get_json()["journal"] == before
+    assert Path(app.config["OUTPUT_DIR"], "20260912.html").read_bytes() == original
+    assert client.get("/api/meta").get_json()["count"] == 1
+
+
+@pytest.mark.parametrize("body, rejected", [
+    ("骑" * 45, False),
+    ("骑" * 46, True),
+    ("山风掠过车把，远处的群山渐渐亮起。", True),
+    ("山风掠过车把，远处的群山慢慢亮起。", True),
+    ("山风掠过车把！远处的群山渐渐亮起！", True),
+    ("停在街角的小店，热茶让双手暖了起来。", False),
+])
+def test_segment_copy_limits_length_and_repetition(monkeypatch, tmp_path, body, rejected):
+    from backend.app import METRICS, UserError, generate_segment_copy
+    monkeypatch.setattr("backend.app.ai_chat", lambda *args: {"text": body})
+    data = {"date": "2026-09-12", "styles": ["poetic"], **{m[0]: None for m in METRICS}}
+    previous = ["山风掠过车把，远处的群山渐渐亮起。", "桥下流水映着夕阳。"]
+    if rejected:
+        with pytest.raises(UserError):
+            generate_segment_copy({}, data, "", [], [], tmp_path, previous)
+    else:
+        assert generate_segment_copy({}, data, "", [], [], tmp_path, previous) == body
+
+
+def test_segment_requests_include_all_previous_passages(app, client, monkeypatch):
+    configure(client)
+    for text in ["山路", "河边", "茶店"]:
+        save_journal(client, "2026-09-12", text)
+    calls = fake_ai_segmented(monkeypatch)
+    response = post(client, "/api/generate", {"styles": "poetic", "date": "2026-09-12"})
+    finished = wait_story_task(client, response.get_json()["task"]["task_id"])
+    assert finished["status"] == "done"
+    segments = client.get("/api/rides/2026-09-12").get_json()["record"]["story_segments"]
+    segment_calls = [c for c in calls if c["segment"]]
+    for index, call in enumerate(segment_calls):
+        assert call["prompt"]["此前已生成文案"] == [s["text"] for s in segments[:index]]

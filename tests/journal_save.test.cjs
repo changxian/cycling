@@ -18,6 +18,11 @@ const journal = {
 
 test('浏览器已有旧视图磁盘缓存时，发布后仍显示接口的5张图片和2条文字', async t => {
   let seedCache = true;
+  let servedJournal = journal;
+  const record = {
+    date: journal.date, filename: '20260912_2.html', title: '第二程',
+    photos: [], entries: [{ style: 'poetic', text: '第二程故事' }], styles: ['poetic'],
+  };
   const scriptRequests = [];
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
@@ -29,7 +34,8 @@ test('浏览器已有旧视图磁盘缓存时，发布后仍显示接口的5张�
       if (url.pathname.startsWith('/api/')) {
         const result = url.pathname === '/api/session' ? { authenticated: true, csrf_token: 'test-session' }
           : url.pathname === '/api/meta' ? { today: journal.date, metrics: [], styles: [] }
-          : { journal };
+          : url.pathname === '/api/result' ? { record }
+          : { journal: servedJournal };
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Cache-Control', 'no-store');
         return res.end(JSON.stringify(result));
@@ -38,7 +44,7 @@ test('浏览器已有旧视图磁盘缓存时，发布后仍显示接口的5张�
         res.setHeader('Content-Type', 'image/png');
         return res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'));
       }
-      const file = url.pathname === '/' ? '/index.html' : url.pathname;
+      const file = ['/', '/generate'].includes(url.pathname) ? '/index.html' : url.pathname;
       let content = await readFile(join(__dirname, '../frontend', file));
       res.setHeader('Content-Type', file.endsWith('.js') ? 'application/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html');
       res.setHeader('Cache-Control', file.endsWith('.js') ? 'public, max-age=31536000' : 'no-store');
@@ -75,5 +81,15 @@ test('浏览器已有旧视图磁盘缓存时，发布后仍显示接口的5张�
   await page.waitForFunction(() => [...document.querySelectorAll('.photo-carousel img')].every(img => img.complete && img.naturalWidth > 0));
   assert.equal(scriptRequests.filter(url => url === '/src/views.js').length, 1);
   assert.ok(scriptRequests.some(url => url.startsWith('/src/views.js?v=')));
+  servedJournal = { ...journal, groups: [] };
+  await page.reload();
+  await page.locator('#main-content[aria-busy="false"]').waitFor();
+  assert.equal(await page.locator('.photo-carousel .carousel-slide').count(), 0);
+  assert.equal(await page.locator('#text-carousel .text-card').count(), 0);
+  assert.equal(await page.locator('.photo-carousel .carousel-empty').count(), 1);
+  await page.goto(origin + '/generate?date=2026-09-12');
+  await page.locator('#main-content[aria-busy="false"]').waitFor();
+  assert.equal(await page.locator('.saved-status small').innerText(), '20260912_2.html');
+  assert.equal(await page.getByRole('link', { name: '查看 HTML' }).getAttribute('href'), '/cycling/20260912_2.html');
   assert.deepEqual(errors, []);
 });

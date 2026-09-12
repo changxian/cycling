@@ -82,7 +82,7 @@ export function galleryView(meta, items) {
 
 export function resultView(meta, record) {
   const label = id => meta.styles.find(style => style.id === id)?.label || id;
-  const filename = record.date.replaceAll('-', '') + '.html';
+  const filename = record.filename || record.date.replaceAll('-', '') + '.html';
   const filled = meta.metrics.filter(([key]) => record[key] != null && record[key] !== '');
   const segments = record.story_segments || [];
   return `<div class="preview-layout"><div class="preview-toolbar"><div class="saved-status">${icon('circle-check')}<span>已珍藏这一程<small>${e(filename)}</small></span></div><a href="/gallery" class="text-link">时光画廊${icon('arrow-up-right')}</a></div>
