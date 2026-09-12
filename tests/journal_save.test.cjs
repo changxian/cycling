@@ -16,7 +16,7 @@ const journal = {
   ],
 };
 
-test('浏览器已有旧视图磁盘缓存时，发布后仍显示接口的5张图片和2条文字', async t => {
+test('旧缓存兼容及待上传图片的轮播预览、叠加、移除与保存', async t => {
   let seedCache = true;
   let servedJournal = journal;
   const record = {
@@ -24,6 +24,7 @@ test('浏览器已有旧视图磁盘缓存时，发布后仍显示接口的5张�
     photos: [], entries: [{ style: 'poetic', text: '第二程故事' }], styles: ['poetic'],
   };
   const scriptRequests = [];
+  let submittedBody = '';
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     try {
@@ -32,6 +33,11 @@ test('浏览器已有旧视图磁盘缓存时，发布后仍显示接口的5张�
         return res.end('<script type="module">import "/src/views.js"; window.cacheReady = true;</script>');
       }
       if (url.pathname.startsWith('/api/')) {
+        if (req.method === 'POST' && url.pathname === '/api/journals') {
+          const chunks = [];
+          for await (const chunk of req) chunks.push(chunk);
+          submittedBody = Buffer.concat(chunks).toString();
+        }
         const result = url.pathname === '/api/session' ? { authenticated: true, csrf_token: 'test-session' }
           : url.pathname === '/api/meta' ? { today: journal.date, metrics: [], styles: [] }
           : url.pathname === '/api/result' ? { record }
@@ -81,6 +87,19 @@ test('浏览器已有旧视图磁盘缓存时，发布后仍显示接口的5张�
   await page.waitForFunction(() => [...document.querySelectorAll('.photo-carousel img')].every(img => img.complete && img.naturalWidth > 0));
   assert.equal(scriptRequests.filter(url => url === '/src/views.js').length, 1);
   assert.ok(scriptRequests.some(url => url.startsWith('/src/views.js?v=')));
+  const localPhoto = {
+    name: 'local.png', mimeType: 'image/png',
+    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'),
+  };
+  await page.locator('#photo-input').setInputFiles(localPhoto);
+  assert.equal(await page.locator('#photo-count').innerText(), '6 张');
+  await page.locator('.photo-carousel [data-carousel-next]').click();
+  page.once('dialog', dialog => dialog.accept());
+  await page.locator('.photo-carousel .is-active .remove-photo').click();
+  await page.waitForFunction(() => document.querySelectorAll('.photo-carousel .carousel-slide').length === 5);
+  assert.equal(await page.locator('#pending-photo-names li').count(), 1);
+  assert.equal(await page.locator('#text-carousel .text-card').count(), 1);
+  assert.equal(await page.locator('#photo-count').innerText(), '5 张');
   servedJournal = { ...journal, groups: [] };
   await page.reload();
   await page.locator('#main-content[aria-busy="false"]').waitFor();
@@ -90,21 +109,56 @@ test('浏览器已有旧视图磁盘缓存时，发布后仍显示接口的5张�
   // 连续两次选择必须累加；保存请求也必须携带全部文件。
   const photos = Array.from({ length: 6 }, (_, index) => ({
     name: `photo-${index + 1}.png`, mimeType: 'image/png',
-    buffer: Buffer.from('测试图片'),
+    buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'),
   }));
   await page.locator('#photo-input').setInputFiles(photos.slice(0, 5));
   assert.equal(await page.locator('#pending-photo-names li').count(), 5);
+  assert.equal(await page.locator('.photo-carousel .carousel-slide').count(), 5);
+  await page.waitForFunction(() => [...document.querySelectorAll('.photo-carousel img')].every(img => img.complete && img.naturalWidth > 0));
   await page.locator('#photo-input').setInputFiles(photos.slice(5));
   assert.deepEqual(await page.locator('#pending-photo-names li span').allTextContents(), photos.map(photo => photo.name));
   assert.equal(await page.locator('#photo-count').innerText(), '6 张');
+  assert.equal(await page.locator('.photo-carousel .carousel-slide').count(), 6);
+  assert.equal(await page.locator('.photo-carousel .carousel-count').innerText(), '6 / 6');
+  await page.locator('.photo-carousel [data-carousel-prev]').click();
+  assert.equal(await page.locator('.photo-carousel .carousel-count').innerText(), '5 / 6');
+  await page.locator('.photo-carousel [data-carousel-next]').click();
   // 取消选择与误选不支持的文件，都不能覆盖已经选好的图片。
   await page.locator('#photo-input').setInputFiles([]);
   await page.locator('#photo-input').setInputFiles({ name: 'invalid.txt', mimeType: 'text/plain', buffer: Buffer.from('无效') });
   assert.equal(await page.locator('#pending-photo-names li').count(), 6);
-  const savedRequest = page.waitForRequest(request => request.method() === 'POST' && request.url().endsWith('/api/journals'));
+  await page.locator('.photo-carousel .is-active .remove-pending-photo').click();
+  assert.equal(await page.locator('#pending-photo-names li').count(), 5);
+  await page.locator('#pending-photo-names .remove-pending-photo').first().click();
+  assert.equal(await page.locator('.photo-carousel .carousel-slide').count(), 4);
+  assert.equal(await page.locator('#photo-count').innerText(), '4 张');
+  const savedRequest = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith('/api/journals'));
+  const savedNavigation = page.waitForEvent('framenavigated', frame => frame === page.mainFrame());
   await page.locator('#save-journal').click();
-  const body = (await savedRequest).postDataBuffer().toString();
-  assert.deepEqual([...body.matchAll(/filename="([^"]+)"/g)].map(match => match[1]), photos.map(photo => photo.name));
+  await savedRequest;
+  assert.deepEqual([...submittedBody.matchAll(/filename="([^"]+)"/g)].map(match => match[1]), photos.slice(1, 5).map(photo => photo.name));
+  await savedNavigation;
+  await page.locator('#main-content[aria-busy="false"]').waitFor();
+  await page.locator('#photo-input').setInputFiles(localPhoto);
+  await page.locator('.photo-carousel .is-active .remove-pending-photo').click();
+  assert.equal(await page.locator('#pending-photo-names li').count(), 0);
+  assert.equal(await page.locator('#photo-count').innerText(), '0 张');
+  assert.equal(await page.locator('.photo-carousel .carousel-empty').isVisible(), true);
+  await page.locator('#photo-input').setInputFiles(localPhoto);
+  assert.equal(await page.locator('.photo-carousel .carousel-slide.is-active').count(), 1);
+  assert.equal(await page.locator('.photo-carousel .carousel-count').innerText(), '1 / 1');
+  await page.locator('#drop-zone').evaluate((drop, bytes) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([new Uint8Array(bytes)], 'dropped.png', { type: 'image/png' }));
+    drop.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }));
+  }, [...localPhoto.buffer]);
+  assert.equal(await page.locator('.photo-carousel .carousel-slide').count(), 2);
+  assert.equal(await page.locator('#photo-count').innerText(), '2 张');
+  await page.locator('#photo-input').setInputFiles({ name: 'unsupported.heic', mimeType: 'image/heic', buffer: Buffer.from('无法解码的照片') });
+  await page.waitForFunction(() => document.querySelector('.photo-carousel .is-active .pending-photo-label').textContent.includes('浏览器无法预览'));
+  assert.equal(await page.locator('.photo-carousel .is-active .remove-pending-photo').isVisible(), true);
+  await page.locator('.photo-carousel .is-active .remove-pending-photo').click();
+  assert.equal(await page.locator('#photo-count').innerText(), '2 张');
   await page.goto(origin + '/generate?date=2026-09-12');
   await page.locator('#main-content[aria-busy="false"]').waitFor();
   assert.equal(await page.locator('.saved-status small').innerText(), '20260912_2.html');

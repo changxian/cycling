@@ -504,6 +504,7 @@ input:focus {
 .journal-carousel .carousel-slide.is-active { display: block }
 .photo-carousel img { display: block; width: 100%; height: 260px; object-fit: contain; background: #18251d }
 .photo-carousel .remove-photo { z-index: 2 }
+.pending-photo-label { display: block; padding: 8px 70px 8px 12px; color: #315744; background: #edf4ef; font-size: 12px; overflow-wrap: anywhere }
 .text-card { cursor: pointer; padding: 22px 42px 25px !important }
 .text-card span, .text-card small { color: #5b816d; font-size: 12px }
 .text-card p { margin: 12px 0 16px; color: var(--ink); font-size: 15px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere }

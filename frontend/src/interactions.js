@@ -1,5 +1,5 @@
-import { postForm, request } from './api.js?v=20260912-thumbnails-1';
-import { collectPhotoFiles } from './photo-files.js?v=20260912-thumbnails-1';
+import { postForm, request } from './api.js?v=20260912-photo-preview-1';
+import { collectPhotoFiles } from './photo-files.js?v=20260912-photo-preview-1';
 
 export function initInteractions() {
   const icons = () => window.lucide?.createIcons();
@@ -138,7 +138,58 @@ export function initInteractions() {
   const cancelTextEdit = document.getElementById('cancel-text-edit');
   let pendingFiles = [];
   let busy = false;
+  const photoCarousel = document.querySelector('.photo-carousel');
+  const previewUrls = new Map();
   const loadedJournalDate = form.elements.date.value;
+  function refreshPhotoCount() {
+    document.getElementById('photo-count').textContent = `${photoCarousel.querySelectorAll('.carousel-slide').length} 张`;
+  }
+  function updatePendingPreviews(activeIndex) {
+    for (const [file, url] of previewUrls) {
+      if (!pendingFiles.includes(file)) {
+        URL.revokeObjectURL(url);
+        previewUrls.delete(file);
+      }
+    }
+    photoCarousel.querySelectorAll('[data-pending-index]').forEach(slide => slide.remove());
+    const track = photoCarousel.querySelector('.carousel-track');
+    pendingFiles.forEach((file, index) => {
+      if (!previewUrls.has(file)) previewUrls.set(file, URL.createObjectURL(file));
+      const slide = document.createElement('div');
+      slide.className = 'carousel-slide';
+      slide.dataset.pendingIndex = String(index);
+      const image = document.createElement('img');
+      image.alt = `待保存照片：${file.name}`;
+      const label = document.createElement('span');
+      label.className = 'pending-photo-label';
+      label.textContent = `待保存 · ${file.name}`;
+      image.addEventListener('error', () => {
+        image.hidden = true;
+        label.textContent = `待保存 · ${file.name} · 浏览器无法预览此格式，保存后可查看`;
+      });
+      image.src = previewUrls.get(file);
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'remove-photo remove-pending-photo';
+      remove.dataset.index = String(index);
+      remove.setAttribute('aria-label', `移除待上传图片：${file.name}`);
+      remove.textContent = '×';
+      slide.append(image, label, remove);
+      track.append(slide);
+    });
+    photoCarousel.dispatchEvent(new CustomEvent('carousel-update', { detail: { index: activeIndex } }));
+    refreshPhotoCount();
+  }
+  function removePendingPhoto(index) {
+    if (busy || !Number.isInteger(index) || index < 0 || index >= pendingFiles.length) return;
+    const slides = Array.from(photoCarousel.querySelectorAll('.carousel-slide'));
+    const activeIndex = slides.findIndex(slide => slide.classList.contains('is-active'));
+    const removedIndex = slides.findIndex(slide => Number(slide.dataset.pendingIndex) === index);
+    pendingFiles.splice(index, 1);
+    updatePendingPhotoNames();
+    updatePendingPreviews(activeIndex - (removedIndex < activeIndex ? 1 : 0));
+    showMessage(journalMessage, `已选择 ${pendingFiles.length} 张照片，点击“保存本次记录”后入库。`, true);
+  }
   function updatePendingPhotoNames() {
     pendingPhotoNames.replaceChildren(...pendingFiles.map((file, index) => {
       const item = document.createElement('li');
@@ -164,9 +215,10 @@ export function initInteractions() {
       photoError.hidden = false;
       return;
     }
+    const activeIndex = photoCarousel.querySelectorAll('.carousel-slide').length;
     pendingFiles = result.files;
     updatePendingPhotoNames();
-    document.getElementById('photo-count').textContent = `${document.querySelectorAll('.photo-carousel .carousel-slide').length + pendingFiles.length} 张`;
+    updatePendingPreviews(activeIndex);
     showMessage(journalMessage, `已选择 ${pendingFiles.length} 张照片，点击“保存本次记录”后入库。`, true);
   }
   input.addEventListener('change', () => {
@@ -185,25 +237,48 @@ export function initInteractions() {
   pendingPhotoNames.addEventListener('click', event => {
     const button = event.target.closest('.remove-pending-photo');
     if (!button || busy) return;
-    pendingFiles.splice(Number(button.dataset.index), 1);
-    updatePendingPhotoNames();
-    document.getElementById('photo-count').textContent = `${document.querySelectorAll('.photo-carousel .carousel-slide').length + pendingFiles.length} 张`;
+    removePendingPhoto(Number(button.dataset.index));
   });
   document.querySelectorAll('[data-carousel]').forEach(carousel => {
     let slides = Array.from(carousel.querySelectorAll('.carousel-slide'));
-    if (!slides.length) return;
     let index = 0;
     let timer;
+    if (!carousel.querySelector('.carousel-track')) {
+      const track = document.createElement('div');
+      track.className = 'carousel-track';
+      carousel.prepend(track);
+    }
+    if (!carousel.querySelector('.carousel-count')) {
+      for (const [direction, label, symbol] of [['prev', '上一张', '‹'], ['next', '下一张', '›']]) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = `carousel-arrow ${direction === 'prev' ? 'previous' : 'next'}`;
+        button.dataset[direction === 'prev' ? 'carouselPrev' : 'carouselNext'] = '';
+        button.setAttribute('aria-label', label);
+        button.textContent = symbol;
+        carousel.append(button);
+      }
+      const count = document.createElement('span');
+      count.className = 'carousel-count';
+      carousel.append(count);
+    }
+    if (!carousel.querySelector('.carousel-empty')) {
+      const empty = document.createElement('p');
+      empty.className = 'carousel-empty';
+      empty.textContent = '暂无记录，可以继续添加。';
+      carousel.append(empty);
+    }
     const count = carousel.querySelector('.carousel-count');
     const show = next => {
       slides = Array.from(carousel.querySelectorAll('.carousel-slide'));
+      carousel.querySelector('.carousel-empty').hidden = slides.length > 0;
+      carousel.querySelector('.carousel-track').hidden = !slides.length;
+      carousel.querySelectorAll('.carousel-arrow, .carousel-count, .remove-text').forEach(control => {
+        control.hidden = !slides.length;
+      });
       if (!slides.length) {
         clearInterval(timer);
-        carousel.replaceChildren();
-        const empty = document.createElement('p');
-        empty.className = 'carousel-empty';
-        empty.textContent = '暂无记录，可以继续添加。';
-        carousel.append(empty);
+        index = 0;
         return;
       }
       index = (next + slides.length) % slides.length;
@@ -220,8 +295,14 @@ export function initInteractions() {
     const groupPhotoCount = groupId => document.querySelectorAll(`.photo-carousel .carousel-slide[data-group-id="${CSS.escape(groupId)}"]`).length;
     const groupHasText = groupId => document.querySelectorAll(`#text-carousel .carousel-slide[data-group-id="${CSS.escape(groupId)}"]`).length > 0;
     const journalApi = `/api/journals/${encodeURIComponent(loadedJournalDate)}`;
-    function refreshPhotoCount() {
-      document.getElementById('photo-count').textContent = `${document.querySelectorAll('.photo-carousel .carousel-slide').length + pendingFiles.length} 张`;
+    function refreshCarousels() {
+      document.querySelectorAll('[data-carousel]').forEach(item => item.dispatchEvent(new CustomEvent('carousel-update')));
+      refreshPhotoCount();
+    }
+    function removeGroupFromPage(groupId) {
+      document.querySelectorAll(`.carousel-slide[data-group-id="${CSS.escape(groupId)}"]`).forEach(slide => slide.remove());
+      if (document.getElementById('edit-group-id').value === groupId) cancelTextEdit.click();
+      refreshCarousels();
     }
     async function deletePhoto(slide) {
       const removeBtn = slide.querySelector('.remove-photo');
@@ -240,10 +321,13 @@ export function initInteractions() {
         const alsoDeleteText = window.confirm('这是该组最后一张图片。删除后对应文案也会一并删除，是否确认？');
         if (alsoDeleteText) {
           await request(`${journalApi}/group/${encodeURIComponent(groupId)}`, { method: 'DELETE' });
+          removeGroupFromPage(groupId);
         } else {
           await request(`${journalApi}/photo/${encodeURIComponent(groupId)}/${encodeURIComponent(photoName)}`, { method: 'DELETE' });
+          slide.remove();
+          refreshCarousels();
         }
-        window.location.reload();
+        showMessage(journalMessage, '已删除并保存，可继续记录。', true);
         return;
       }
       if (!window.confirm('确认从当天手记中删除这张图片？已生成故事中的图片不会改变。')) return;
@@ -259,12 +343,17 @@ export function initInteractions() {
       if (!groupId) return;
       if (!window.confirm('确认删除这条文字记录？该组对应的图片也会一并删除，删除后无法恢复。')) return;
       await request(`${journalApi}/group/${encodeURIComponent(groupId)}`, { method: 'DELETE' });
-      window.location.reload();
+      removeGroupFromPage(groupId);
+      showMessage(journalMessage, '已删除并保存，可继续记录。', true);
     }
     carousel.addEventListener('click', async event => {
       const remove = event.target.closest('.remove-photo, .remove-text');
       if (!remove || busy) return;
       event.stopPropagation();
+      if (remove.classList.contains('remove-pending-photo')) {
+        removePendingPhoto(Number(remove.dataset.index));
+        return;
+      }
       busy = true;
       clearInterval(timer);
       try {
@@ -276,15 +365,32 @@ export function initInteractions() {
           await deleteTextGroup();
         }
       } catch (error) { showMessage(journalMessage, error.message); }
-      finally { busy = false; }
+      finally { busy = false; refreshCarousels(); }
     });
     carousel.querySelector('[data-carousel-prev]')?.addEventListener('click', () => show(index - 1));
     carousel.querySelector('[data-carousel-next]')?.addEventListener('click', () => show(index + 1));
-    if (!matchMedia('(prefers-reduced-motion: reduce)').matches && slides.length > 1) {
-      timer = setInterval(() => show(index + 1), 5000);
-      carousel.addEventListener('pointerenter', () => clearInterval(timer));
-      carousel.addEventListener('pointerleave', () => { timer = setInterval(() => show(index + 1), 5000); });
-    }
+    const startTimer = () => {
+      clearInterval(timer);
+      if (!busy && !carousel.matches(':hover') && !matchMedia('(prefers-reduced-motion: reduce)').matches && slides.length > 1) {
+        timer = setInterval(() => show(index + 1), 5000);
+      }
+    };
+    carousel.addEventListener('carousel-update', event => {
+      const length = carousel.querySelectorAll('.carousel-slide').length;
+      show(Math.max(0, Math.min(event.detail?.index ?? index, length - 1)));
+      startTimer();
+    });
+    carousel.addEventListener('pointerenter', () => clearInterval(timer));
+    carousel.addEventListener('pointerleave', startTimer);
+    show(0);
+    startTimer();
+    window.addEventListener('pagehide', () => clearInterval(timer));
+    window.addEventListener('pageshow', startTimer);
+  });
+  window.addEventListener('pagehide', event => {
+    if (event.persisted) return;
+    previewUrls.forEach(url => URL.revokeObjectURL(url));
+    previewUrls.clear();
   });
   journalText?.addEventListener('input', () => {
     document.getElementById('text-length').textContent = `${journalText.value.length} / 1024`;
@@ -315,13 +421,14 @@ export function initInteractions() {
     pendingFiles.forEach(file => data.append('photos', file));
     if (!journalText.value.trim() && !pendingFiles.length) { showMessage(journalMessage, '先写下一段经历，或选择照片。'); return; }
     journalSave.disabled = true;
+    busy = true;
     try {
       await postForm('/api/journals', data);
       // Keep the user in the same editor. Reloading refreshes the saved
       // carousel without turning this action into a navigation step.
       window.location.reload();
     } catch (error) { showMessage(journalMessage, error.message); }
-    finally { journalSave.disabled = false; }
+    finally { journalSave.disabled = false; busy = false; }
   });
   const waitForStoryTask = taskId => new Promise((resolve, reject) => {
     let elapsed = 0;
