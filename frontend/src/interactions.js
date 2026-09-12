@@ -1,5 +1,5 @@
-import { postForm, request } from './api.js?v=20260912-stories-2';
-import { collectPhotoFiles } from './photo-files.js?v=20260912-stories-2';
+import { postForm, request } from './api.js?v=20260912-photo-stack-1';
+import { collectPhotoFiles } from './photo-files.js?v=20260912-photo-stack-1';
 
 export function initInteractions() {
   const icons = () => window.lucide?.createIcons();
@@ -154,10 +154,11 @@ export function initInteractions() {
       return item;
     }));
   }
-  function addFiles(files, { replace = false } = {}) {
+  function addFiles(files) {
     if (busy) return;
+    if (!files.length) return;
     photoError.hidden = true;
-    const result = collectPhotoFiles(pendingFiles, files, { replace });
+    const result = collectPhotoFiles(pendingFiles, files);
     if (result.error) {
       photoError.textContent = result.error;
       photoError.hidden = false;
@@ -169,7 +170,7 @@ export function initInteractions() {
     showMessage(journalMessage, `已选择 ${pendingFiles.length} 张照片，点击“保存本次记录”后入库。`, true);
   }
   input.addEventListener('change', () => {
-    addFiles(Array.from(input.files), { replace: true });
+    addFiles(Array.from(input.files));
     input.value = '';
   });
   ['dragenter', 'dragover'].forEach(name => drop.addEventListener(name, event => {

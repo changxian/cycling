@@ -3,7 +3,7 @@ const supportedPhotoTypes = new Set([
 ]);
 const supportedPhotoExtensions = /\.(?:jpe?g|png|webp|heic|heif)$/i;
 
-export function collectPhotoFiles(currentFiles, incomingFiles, { replace = false } = {}) {
+export function collectPhotoFiles(currentFiles, incomingFiles) {
   const incoming = Array.from(incomingFiles);
   const invalid = incoming.find(file => (
     !supportedPhotoTypes.has(file.type) && !supportedPhotoExtensions.test(file.name)
@@ -11,5 +11,5 @@ export function collectPhotoFiles(currentFiles, incomingFiles, { replace = false
   if (invalid) {
     return { files: currentFiles, error: '请选择 JPG、PNG、WebP 或苹果照片格式。' };
   }
-  return { files: replace ? incoming : [...currentFiles, ...incoming], error: null };
+  return { files: [...currentFiles, ...incoming], error: null };
 }

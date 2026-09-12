@@ -47,7 +47,7 @@ python3 -m venv .venv && source .venv/bin/activate && pip install -r requirement
 - 照片轮播 `.photo-carousel .carousel-slide[data-group-id][data-retained]`，删图按钮 `.remove-photo[data-group-id][data-photo]`。
 - 文案轮播 `#text-carousel .text-card[data-group-id][data-text]`，删文案按钮 `.remove-text`（动态 append）。
 - 隐藏字段 `#edit-group-id`；保存按钮 `#save-journal`；表单 `#ride-form` 提交 `/api/generate`。
-- 选择器 `#photo-input` 每次选择会替换待上传列表；拖放会追加。待上传列表支持移除单张，避免此前失败的文件随下一次上传重复提交。
+- 选择器 `#photo-input` 与拖放统一为叠加：每次选择/拖放都追加到待上传列表（此前选择会整体覆盖、拖放追加）。`collectPhotoFiles` 已移除 `replace` 选项（2026-09-12-photo-stack）。
 
 ## 已知问题（非本次引入）
 - **2026-09-12 接口有 5 组、页面却提示无照片的根因已确认**：用户 Edge 的 `views.js` 实际来自磁盘缓存，旧代码读取 `journal.photos`、`journal.texts`；接口已返回 `journal.groups`，旧代码因此渲染空态。服务器文件与本地一致，不代表浏览器执行的版本一致。通过当前页面开发者工具只读确认，强制刷新后已恢复 5 张图片轮播和 2 条文字。
@@ -78,3 +78,11 @@ python3 -m venv .venv && source .venv/bin/activate && pip install -r requirement
 - 本地去除标点和空白、忽略大小写后，以 `SequenceMatcher` 相似度 >= 0.8 拦截明显近似文案；语义差异依赖模型遵循提示词，不能保证识别全部同义改写。
 - 同步单段和最终汇总仍沿用原有100至200字规则；未改接口结构，未调用真实AI、未上传或部署、未提交。
 - 验证：新增7项测试先失败后通过；完整后端68项测试通过，后端与测试文件语法检查通过。
+
+## 2026-09-12 图片选择改为叠加
+- 变更说明：记录页图片选择器与拖放统一为叠加；此前 `#photo-input` 每次选择会整体覆盖待上传列表（第二次选 1 张，之前的 5 张丢失）。
+- `frontend/src/interactions.js`：`addFiles` 去掉 `replace` 参数，选择器 change 事件不再传 `{ replace: true }`；选择 0 张（取消选择）直接忽略，不清空已有列表；格式校验失败仍保留原列表并提示。
+- `frontend/src/photo-files.js`：`collectPhotoFiles` 移除 `replace` 选项，统一追加；混入不支持格式时保留原列表并返回错误提示。
+- 前端全依赖链缓存版本：`20260912-photo-stack-1`（覆盖旧 `20260912-stories-2`）。
+- 测试：`tests/photo_files.test.mjs` 更新为叠加语义（含 5+1=6 用例与混入非法格式保留原列表用例）；`tests/journal_save.test.cjs` 既有断言（连续两次选择必须累加、6 张）即为复现测试。
+- 验证状态：单测 3/3 通过、两文件 `node --check` 通过；浏览器回归因审批服务 503 未运行，需 `NODE_PATH=/Users/changx/.hermes/hermes-agent/node_modules node --test tests/journal_save.test.cjs` 补跑。

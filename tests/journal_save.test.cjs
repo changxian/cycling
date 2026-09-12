@@ -87,6 +87,24 @@ test('浏览器已有旧视图磁盘缓存时，发布后仍显示接口的5张�
   assert.equal(await page.locator('.photo-carousel .carousel-slide').count(), 0);
   assert.equal(await page.locator('#text-carousel .text-card').count(), 0);
   assert.equal(await page.locator('.photo-carousel .carousel-empty').count(), 1);
+  // 连续两次选择必须累加；保存请求也必须携带全部文件。
+  const photos = Array.from({ length: 6 }, (_, index) => ({
+    name: `photo-${index + 1}.png`, mimeType: 'image/png',
+    buffer: Buffer.from('测试图片'),
+  }));
+  await page.locator('#photo-input').setInputFiles(photos.slice(0, 5));
+  assert.equal(await page.locator('#pending-photo-names li').count(), 5);
+  await page.locator('#photo-input').setInputFiles(photos.slice(5));
+  assert.deepEqual(await page.locator('#pending-photo-names li span').allTextContents(), photos.map(photo => photo.name));
+  assert.equal(await page.locator('#photo-count').innerText(), '6 张');
+  // 取消选择与误选不支持的文件，都不能覆盖已经选好的图片。
+  await page.locator('#photo-input').setInputFiles([]);
+  await page.locator('#photo-input').setInputFiles({ name: 'invalid.txt', mimeType: 'text/plain', buffer: Buffer.from('无效') });
+  assert.equal(await page.locator('#pending-photo-names li').count(), 6);
+  const savedRequest = page.waitForRequest(request => request.method() === 'POST' && request.url().endsWith('/api/journals'));
+  await page.locator('#save-journal').click();
+  const body = (await savedRequest).postDataBuffer().toString();
+  assert.deepEqual([...body.matchAll(/filename="([^"]+)"/g)].map(match => match[1]), photos.map(photo => photo.name));
   await page.goto(origin + '/generate?date=2026-09-12');
   await page.locator('#main-content[aria-busy="false"]').waitFor();
   assert.equal(await page.locator('.saved-status small').innerText(), '20260912_2.html');
