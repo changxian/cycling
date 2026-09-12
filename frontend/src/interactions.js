@@ -1,4 +1,5 @@
 import { postForm, request } from './api.js';
+import { collectPhotoFiles } from './photo-files.js';
 
 export function initInteractions() {
   const icons = () => window.lucide?.createIcons();
@@ -139,31 +140,36 @@ export function initInteractions() {
   let busy = false;
   const loadedJournalDate = form.elements.date.value;
   function updatePendingPhotoNames() {
-    pendingPhotoNames.replaceChildren(...pendingFiles.map(file => {
+    pendingPhotoNames.replaceChildren(...pendingFiles.map((file, index) => {
       const item = document.createElement('li');
-      item.textContent = file.name;
+      const name = document.createElement('span');
+      name.textContent = file.name;
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'remove-pending-photo';
+      remove.dataset.index = String(index);
+      remove.setAttribute('aria-label', `移除待上传图片：${file.name}`);
+      remove.textContent = '移除';
+      item.append(name, remove);
       return item;
     }));
   }
-  function addFiles(files) {
+  function addFiles(files, { replace = false } = {}) {
     if (busy) return;
     photoError.hidden = true;
-    for (const file of files) {
-      if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-        photoError.textContent = '请选择 JPG、PNG 或 WebP 格式的照片。';
-        photoError.hidden = false;
-        return;
-      }
+    const result = collectPhotoFiles(pendingFiles, files, { replace });
+    if (result.error) {
+      photoError.textContent = result.error;
+      photoError.hidden = false;
+      return;
     }
-    for (const file of files) {
-      pendingFiles.push(file);
-    }
+    pendingFiles = result.files;
     updatePendingPhotoNames();
     document.getElementById('photo-count').textContent = `${document.querySelectorAll('.photo-carousel .carousel-slide').length + pendingFiles.length} 张`;
     showMessage(journalMessage, `已选择 ${pendingFiles.length} 张照片，点击“保存本次记录”后入库。`, true);
   }
   input.addEventListener('change', () => {
-    addFiles(Array.from(input.files));
+    addFiles(Array.from(input.files), { replace: true });
     input.value = '';
   });
   ['dragenter', 'dragover'].forEach(name => drop.addEventListener(name, event => {
@@ -175,6 +181,13 @@ export function initInteractions() {
     drop.classList.remove('dragging');
   }));
   drop.addEventListener('drop', event => addFiles(Array.from(event.dataTransfer.files)));
+  pendingPhotoNames.addEventListener('click', event => {
+    const button = event.target.closest('.remove-pending-photo');
+    if (!button || busy) return;
+    pendingFiles.splice(Number(button.dataset.index), 1);
+    updatePendingPhotoNames();
+    document.getElementById('photo-count').textContent = `${document.querySelectorAll('.photo-carousel .carousel-slide').length + pendingFiles.length} 张`;
+  });
   document.querySelectorAll('[data-carousel]').forEach(carousel => {
     let slides = Array.from(carousel.querySelectorAll('.carousel-slide'));
     if (!slides.length) return;
@@ -203,27 +216,66 @@ export function initInteractions() {
       remove.textContent = '删除本条文字';
       carousel.append(remove);
     }
+    const groupPhotoCount = groupId => document.querySelectorAll(`.photo-carousel .carousel-slide[data-group-id="${CSS.escape(groupId)}"]`).length;
+    const groupHasText = groupId => document.querySelectorAll(`#text-carousel .carousel-slide[data-group-id="${CSS.escape(groupId)}"]`).length > 0;
+    const journalApi = `/api/journals/${encodeURIComponent(loadedJournalDate)}`;
+    function refreshPhotoCount() {
+      document.getElementById('photo-count').textContent = `${document.querySelectorAll('.photo-carousel .carousel-slide').length + pendingFiles.length} 张`;
+    }
+    async function deletePhoto(slide) {
+      const removeBtn = slide.querySelector('.remove-photo');
+      const groupId = removeBtn.dataset.groupId;
+      const photoName = removeBtn.dataset.photo;
+      if (groupPhotoCount(groupId) > 1) {
+        if (!window.confirm('确认从当天手记中删除这张图片？已生成故事中的图片不会改变。')) return;
+        await request(`${journalApi}/photo/${encodeURIComponent(groupId)}/${encodeURIComponent(photoName)}`, { method: 'DELETE' });
+        slide.remove();
+        show(index);
+        refreshPhotoCount();
+        showMessage(journalMessage, '已删除并保存，可继续记录。', true);
+        return;
+      }
+      if (groupHasText(groupId)) {
+        const alsoDeleteText = window.confirm('这是该组最后一张图片。删除后对应文案也会一并删除，是否确认？');
+        if (alsoDeleteText) {
+          await request(`${journalApi}/group/${encodeURIComponent(groupId)}`, { method: 'DELETE' });
+        } else {
+          await request(`${journalApi}/photo/${encodeURIComponent(groupId)}/${encodeURIComponent(photoName)}`, { method: 'DELETE' });
+        }
+        window.location.reload();
+        return;
+      }
+      if (!window.confirm('确认从当天手记中删除这张图片？已生成故事中的图片不会改变。')) return;
+      await request(`${journalApi}/photo/${encodeURIComponent(groupId)}/${encodeURIComponent(photoName)}`, { method: 'DELETE' });
+      slide.remove();
+      show(index);
+      refreshPhotoCount();
+      showMessage(journalMessage, '已删除并保存，可继续记录。', true);
+    }
+    async function deleteTextGroup() {
+      const activeCard = carousel.querySelector('.carousel-slide.is-active');
+      const groupId = activeCard?.dataset.groupId;
+      if (!groupId) return;
+      if (!window.confirm('确认删除这条文字记录？该组对应的图片也会一并删除，删除后无法恢复。')) return;
+      await request(`${journalApi}/group/${encodeURIComponent(groupId)}`, { method: 'DELETE' });
+      window.location.reload();
+    }
     carousel.addEventListener('click', async event => {
       const remove = event.target.closest('.remove-photo, .remove-text');
       if (!remove || busy) return;
       event.stopPropagation();
-      const slide = remove.closest('.carousel-slide') || carousel.querySelector('.carousel-slide.is-active');
-      if (!slide) return;
-      const isPhoto = remove.classList.contains('remove-photo');
-      if (!window.confirm(isPhoto ? '确认从当天手记中删除这张图片？已生成故事中的图片不会改变。' : '确认删除这条文字记录？删除后无法恢复。')) return;
       busy = true;
-      remove.disabled = true;
       clearInterval(timer);
       try {
-        const id = isPhoto ? slide.dataset.retained : slide.dataset.textId;
-        await request(`/api/journals/${encodeURIComponent(loadedJournalDate)}/${isPhoto ? 'photos' : 'texts'}/${encodeURIComponent(id)}`, { method: 'DELETE' });
-        if (!isPhoto && document.getElementById('edit-text-id').value === id) cancelTextEdit.click();
-        slide.remove();
-        show(index);
-        document.getElementById('photo-count').textContent = `${document.querySelectorAll('.photo-carousel .carousel-slide').length + pendingFiles.length} 张`;
-        showMessage(journalMessage, '已删除并保存，可继续记录。', true);
+        if (remove.classList.contains('remove-photo')) {
+          const slide = remove.closest('.carousel-slide');
+          if (!slide) return;
+          await deletePhoto(slide);
+        } else {
+          await deleteTextGroup();
+        }
       } catch (error) { showMessage(journalMessage, error.message); }
-      finally { busy = false; remove.disabled = false; }
+      finally { busy = false; }
     });
     carousel.querySelector('[data-carousel-prev]')?.addEventListener('click', () => show(index - 1));
     carousel.querySelector('[data-carousel-next]')?.addEventListener('click', () => show(index + 1));
@@ -237,17 +289,17 @@ export function initInteractions() {
     document.getElementById('text-length').textContent = `${journalText.value.length} / 1024`;
   });
   document.getElementById('text-carousel')?.addEventListener('click', event => {
-    const card = event.target.closest('[data-text-id]');
-    if (!card) return;
+    const card = event.target.closest('[data-group-id]');
+    if (!card || card.classList.contains('remove-text')) return;
     journalText.value = card.dataset.text || '';
-    document.getElementById('edit-text-id').value = card.dataset.textId;
+    document.getElementById('edit-group-id').value = card.dataset.groupId;
     document.getElementById('text-length').textContent = `${journalText.value.length} / 1024`;
     cancelTextEdit.hidden = false;
     journalText.focus();
   });
   cancelTextEdit?.addEventListener('click', () => {
     journalText.value = '';
-    document.getElementById('edit-text-id').value = '';
+    document.getElementById('edit-group-id').value = '';
     document.getElementById('text-length').textContent = '0 / 1024';
     cancelTextEdit.hidden = true;
     journalText.focus();
@@ -257,9 +309,8 @@ export function initInteractions() {
     const data = new FormData();
     data.append('date', form.elements.date.value);
     data.append('text', journalText.value);
-    data.append('edit_text_id', document.getElementById('edit-text-id').value);
+    data.append('edit_group_id', document.getElementById('edit-group-id').value);
     data.append('background_music', document.getElementById('background-music').checked ? '1' : '0');
-    document.querySelectorAll('.photo-carousel [data-retained]').forEach(item => data.append('retained_photos', item.dataset.retained));
     pendingFiles.forEach(file => data.append('photos', file));
     if (!journalText.value.trim() && !pendingFiles.length) { showMessage(journalMessage, '先写下一段经历，或选择照片。'); return; }
     journalSave.disabled = true;
@@ -270,6 +321,28 @@ export function initInteractions() {
       window.location.reload();
     } catch (error) { showMessage(journalMessage, error.message); }
     finally { journalSave.disabled = false; }
+  });
+  const waitForStoryTask = taskId => new Promise((resolve, reject) => {
+    let elapsed = 0;
+    const step = () => {
+      request('/api/story-tasks/' + encodeURIComponent(taskId))
+        .then(result => {
+          const task = result.task;
+          if (task.status === 'done' || task.status === 'failed') { resolve(task); return; }
+          const label = generationStatus.childNodes[generationStatus.childNodes.length - 1];
+          if (label && label.nodeType === 3) label.textContent = '正在逐张创作故事 ' + task.done + ' / ' + task.total + '…';
+          elapsed += 1500;
+          setTimeout(step, 1500);
+        })
+        .catch(error => {
+          if (elapsed < 60000) {
+            setTimeout(step, 1500);
+          } else {
+            reject(error instanceof Error ? error : new Error(String((error && error.message) || error)));
+          }
+        });
+    };
+    step();
   });
   const styleInputs = Array.from(form.querySelectorAll('input[name="styles"]'));
   function updateStyles() {
@@ -300,9 +373,17 @@ export function initInteractions() {
     generationStatus.hidden = false;
     try {
       const result = await postForm(form.action, data);
+      if (result.task) {
+        const done = await waitForStoryTask(result.task.task_id);
+        if (done.status === 'failed') {
+          throw new Error(done.error || '骑行故事创建失败，请稍后重试。');
+        }
+        window.location.assign('/generate?date=' + result.task.date);
+        return;
+      }
       window.location.assign(result.redirect);
     } catch (error) {
-      showMessage(formMessage, error.message === 'Failed to fetch' ? '网络连接中断，表单已保留，请重试。' : error.message);
+      showMessage(formMessage, error.message === '网络连接中断，请检查连接后重试。' ? '网络连接中断，表单已保留，请重试。' : error.message);
       formMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
     } finally {
       busy = false;

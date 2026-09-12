@@ -3,6 +3,7 @@ import io
 import json
 import re
 import sqlite3
+import time
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -93,6 +94,150 @@ def image_upload():
     Image.new("RGB", (80, 60), (32, 120, 90)).save(stream, "PNG")
     stream.seek(0)
     return stream, "ride.png"
+
+
+@pytest.mark.parametrize(
+    ("image_format", "filename", "expected_suffix"),
+    [
+        ("JPEG", "ride.jpg", ".jpg"),
+        ("PNG", "ride.png", ".png"),
+        ("WEBP", "ride.webp", ".webp"),
+        ("HEIF", "iphone-photo.heic", ".jpg"),
+    ],
+)
+def test_generate_accepts_common_and_iphone_photo_formats(
+    app, client, monkeypatch, image_format, filename, expected_suffix
+):
+    """HEIF uploads are converted because browsers cannot reliably render them."""
+    if image_format == "HEIF":
+        pillow_heif = pytest.importorskip("pillow_heif")
+        pillow_heif.register_heif_opener()
+    stream = io.BytesIO()
+    Image.new("RGB", (80, 60), (32, 120, 90)).save(stream, image_format)
+    stream.seek(0)
+    configure(client)
+    fake_ai(monkeypatch)
+
+    response = post(
+        client,
+        "/api/generate",
+        {"styles": "poetic", "photos": (stream, filename)},
+    )
+
+    assert response.status_code == 200
+    photo = response.get_json()["record"]["photos"][0]
+    assert photo.endswith(expected_suffix)
+    with Image.open(Path(app.config["PHOTO_DIR"], photo)) as saved:
+        assert saved.format in {"JPEG", "PNG", "WEBP"}
+
+
+@pytest.mark.parametrize("mode", ["RGB", "RGBA", "P", "L", "I;16"])
+@pytest.mark.parametrize("mime", ["image/png", "application/octet-stream"])
+def test_journal_saves_uppercase_png_with_varied_pixel_modes(app, client, mode, mime):
+    """实际 PNG 内容不应受大写后缀、透明度、位深或 MIME 声明影响。"""
+    login(client)
+    stream = io.BytesIO()
+    Image.new(mode, (80, 60)).save(stream, "PNG")
+    original = stream.getvalue()
+    stream.seek(0)
+    response = post(client, "/api/journals", {
+        "date": "2026-09-12",
+        "photos": (stream, "手机截屏.PNG", mime),
+    })
+    assert response.status_code == 200, response.get_json()
+    groups = response.get_json()["journal"]["groups"]
+    assert len(groups) == 1 and len(groups[0]["photos"]) == 1
+    name = groups[0]["photos"][0]
+    assert Path(app.config["PHOTO_DIR"], name).read_bytes() == original
+    assert client.get("/tmp/" + name).mimetype == "image/png"
+    assert get_journal_groups(client, "2026-09-12") == groups
+
+
+def test_journal_converts_mpo_named_png_to_primary_jpeg(app, client):
+    """手机多图像 JPEG 即使使用 PNG 后缀，也应保存可显示的主图。"""
+    login(client)
+    stream = io.BytesIO()
+    Image.new("RGB", (80, 60), (240, 20, 20)).save(
+        stream, "MPO", save_all=True,
+        append_images=[Image.new("RGB", (80, 60), (20, 20, 240))],
+    )
+    stream.seek(0)
+    response = post(client, "/api/journals", {
+        "date": "2026-09-12",
+        "photos": (stream, "IMG_8051.PNG", "image/png"),
+    })
+    assert response.status_code == 200, response.get_json()
+    groups = response.get_json()["journal"]["groups"]
+    name = groups[0]["photos"][0]
+    assert name.endswith(".jpg")
+    with Image.open(Path(app.config["PHOTO_DIR"], name)) as saved:
+        assert saved.format == "JPEG"
+        assert saved.size == (80, 60)
+        red, green, blue = saved.getpixel((40, 30))
+        assert red > 200 and green < 50 and blue < 50
+    assert client.get("/tmp/" + name).mimetype == "image/jpeg"
+    assert get_journal_groups(client, "2026-09-12") == groups
+
+
+def fake_ai_segmented(monkeypatch, styles=("poetic",)):
+    """fake_ai 的异步版：按 system 提示词区分「单段故事」与「最终故事」两种调用形态。
+
+    每次 AI 调用都记录 {prompt, images, kind}；图片取 user 消息里的 image_url 数量，
+    便于断言压缩后的图片体积。"""
+    calls = []
+    def call(endpoint, **kwargs):
+        messages = kwargs["json"]["messages"]
+        user = messages[1]["content"]
+        if isinstance(user, list):
+            images = [part for part in user[1:] if part.get("type") == "image_url"]
+            payload = json.loads(user[0]["text"])
+        else:
+            images = []
+            payload = json.loads(user)
+        calls.append({"prompt": payload, "images": images, "segment": "故事文案正文" in messages[0]["content"]})
+        if calls[-1]["segment"]:
+            result = {"text": "第 " + str(len(calls)) + " 段小故事：风里有这一段路。"}
+        else:
+            result = {"title": "山风里的骑行", "entries": [
+                {"style": style, "text": style + "：风从山间吹来。"} for style in styles
+            ]}
+        return Mock(
+            status_code=200,
+            json=lambda: {"choices": [{"message": {"content": json.dumps(result)}}]},
+        )
+    monkeypatch.setattr("backend.app.requests.post", call)
+    return calls
+
+
+def wait_story_task(client, task_id, timeout=30):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        task = client.get("/api/story-tasks/" + task_id).get_json()["task"]
+        if task["status"] in ("done", "failed"):
+            return task
+        time.sleep(0.05)
+    raise AssertionError("story task did not finish: " + json.dumps(task, ensure_ascii=False))
+
+
+def save_journal(client, date, text="", photos=None, edit_group_id=None):
+    payload = {"date": date, "text": text, "background_music": "0"}
+    if edit_group_id:
+        payload["edit_group_id"] = edit_group_id
+    if photos:
+        payload["photos"] = [(stream, name, "image/png") for stream, name in photos]
+    return client.post(
+        "/api/journals",
+        data=payload,
+        headers={"X-CSRF-Token": token(client), "Accept": "application/json"},
+    )
+
+
+def get_journal_groups(client, date):
+    return client.get(f"/api/journals/{date}").get_json()["journal"]["groups"]
+
+
+def delete_client(client, path):
+    return client.delete(path, headers={"X-CSRF-Token": token(client), "Accept": "application/json"})
 
 
 def test_authentication_and_csrf(client):
@@ -250,19 +395,29 @@ def test_story_schemes_are_saved_and_added_to_matching_ai_prompt(client, monkeyp
     assert client.get("/api/config").get_json()["story_schemes"] == schemes
 
 
-def test_ai_images_are_compressed_and_multiple_exported_photos_rotate(app, client, monkeypatch):
+def test_ai_images_are_compressed_and_multiple_photos_render_as_story_cards(app, client, monkeypatch):
     configure(client)
-    call = fake_ai(monkeypatch)
+    calls = fake_ai_segmented(monkeypatch)
     response = post(client, "/api/generate", {
         "date": "2026-09-08", "styles": "poetic",
         "photos": [image_upload(), image_upload()],
     })
     assert response.status_code == 200
-    content = call.call_args.kwargs["json"]["messages"][1]["content"]
-    for part in content[1:]:
-        assert len(base64.b64decode(part["image_url"]["url"].split(",", 1)[1])) < 1024 * 1024
+    task = response.get_json()["task"]
+    assert task["status"] == "running" and task["total"] == 3  # 两张图各一段 + 一段终稿
+    finished = wait_story_task(client, task["task_id"])
+    assert finished["status"] == "done" and finished["done"] == 3
+    record = client.get("/api/rides/2026-09-08").get_json()["record"]
+    assert [item["photo"] for item in record["story_segments"]] == record["photos"]
+    # 两张照片各对应一段故事文案；每张图都以压缩后的 base64 传给 AI。
+    segment_calls = [c for c in calls if c["segment"]]
+    assert len(segment_calls) == 2 and [len(c["images"]) for c in segment_calls] == [1, 1]
+    for image in [i for c in segment_calls for i in c["images"]]:
+        assert len(base64.b64decode(image["image_url"]["url"].split(",", 1)[1])) < 1024 * 1024
     html = Path(app.config["OUTPUT_DIR"], "20260908.html").read_text()
-    assert "data-carousel" in html and "/cycling/photos/" in html
+    assert "story-segments" in html and "/cycling/photos/" in html
+    # 多图场景照片并入故事卡片，不再单独渲染照片轮播区块（外层脚本仍引用 data-carousel 选择器，无元素时无副作用）。
+    assert 'class="story-photos"' not in html and 'data-carousel"' not in html and 'story-slide' not in html
 
 
 def test_exported_story_page_has_no_site_navigation(app, client, monkeypatch):
@@ -436,3 +591,109 @@ def test_atomic_write_rollback(app, client, monkeypatch):
     assert Path(app.config["OUTPUT_DIR"], "20260907.html").read_bytes() == previous
     assert not list(Path(app.config["OUTPUT_DIR"]).glob("*.tmp"))
     assert not list(Path(app.config["PHOTO_DIR"]).iterdir())
+
+
+def test_journal_save_binds_text_and_photos_into_group(app, client):
+    login(client)
+    assert save_journal(client, "2026-09-07", "路上的一段话", [image_upload()]).status_code == 200
+    groups = get_journal_groups(client, "2026-09-07")
+    assert len(groups) == 1
+    assert groups[0]["text"] == "路上的一段话"
+    assert len(groups[0]["photos"]) == 1
+    # A photos-only save becomes an empty-text group.
+    assert save_journal(client, "2026-09-07", "", [image_upload()]).status_code == 200
+    groups = get_journal_groups(client, "2026-09-07")
+    assert len(groups) == 2
+    assert groups[1]["text"] == "" and len(groups[1]["photos"]) == 1
+
+
+def test_journal_neither_text_nor_photo_is_rejected(client):
+    login(client)
+    assert save_journal(client, "2026-09-07", "", []).status_code == 400
+
+
+def test_delete_text_group_removes_its_photos(client):
+    login(client)
+    save_journal(client, "2026-09-07", "一段", [image_upload(), image_upload()])
+    group = get_journal_groups(client, "2026-09-07")[0]
+    assert len(group["photos"]) == 2
+    assert delete_client(client, f"/api/journals/2026-09-07/group/{group['id']}").status_code == 200
+    assert get_journal_groups(client, "2026-09-07") == []
+
+
+def test_delete_single_photo_keeps_group_text(client):
+    login(client)
+    save_journal(client, "2026-09-07", "一段", [image_upload(), image_upload()])
+    group = get_journal_groups(client, "2026-09-07")[0]
+    remaining = group["photos"][1]
+    assert delete_client(client, f"/api/journals/2026-09-07/photo/{group['id']}/{group['photos'][0]}").status_code == 200
+    groups = get_journal_groups(client, "2026-09-07")
+    assert len(groups) == 1
+    assert groups[0]["text"] == "一段"
+    assert groups[0]["photos"] == [remaining]
+
+
+def test_delete_last_photo_keeps_text_when_not_confirmed(client):
+    login(client)
+    save_journal(client, "2026-09-07", "又一段", [image_upload()])
+    group = get_journal_groups(client, "2026-09-07")[0]
+    assert delete_client(client, f"/api/journals/2026-09-07/photo/{group['id']}/{group['photos'][0]}").status_code == 200
+    groups = get_journal_groups(client, "2026-09-07")
+    assert len(groups) == 1
+    assert groups[0]["text"] == "又一段" and groups[0]["photos"] == []
+
+
+def test_delete_group_confirmed_removes_last_photo_and_text(client):
+    login(client)
+    save_journal(client, "2026-09-07", "最后一张", [image_upload()])
+    group = get_journal_groups(client, "2026-09-07")[0]
+    assert delete_client(client, f"/api/journals/2026-09-07/group/{group['id']}").status_code == 200
+    assert get_journal_groups(client, "2026-09-07") == []
+
+
+def test_edit_group_updates_text_and_appends_photos(client):
+    login(client)
+    save_journal(client, "2026-09-07", "原文案", [image_upload()])
+    group = get_journal_groups(client, "2026-09-07")[0]
+    assert save_journal(client, "2026-09-07", "改后文案", [image_upload()], edit_group_id=group["id"]).status_code == 200
+    groups = get_journal_groups(client, "2026-09-07")
+    assert len(groups) == 1
+    assert groups[0]["text"] == "改后文案"
+    assert len(groups[0]["photos"]) == 2
+
+
+def test_legacy_flat_journal_migrates_to_groups(app, client):
+    login(client)
+    import sqlite3
+    db = sqlite3.connect(app.config["DATABASE"])
+    db.execute(
+        "INSERT INTO ride_journals (date, payload) VALUES (?, ?)",
+        ("2026-09-09", json.dumps({"date": "2026-09-09", "texts": [{"id": "a1", "text": "旧文案"}], "photos": ["p1.png", "p2.png"], "background_music": True}, ensure_ascii=False)),
+    )
+    db.commit()
+    groups = get_journal_groups(client, "2026-09-09")
+    assert {"id": "a1", "text": "旧文案", "photos": []} in groups
+    assert {"id": "legacy", "text": "", "photos": ["p1.png", "p2.png"]} in groups
+
+
+def test_generate_uses_group_texts_and_photos(app, client, monkeypatch):
+    configure(client)
+    save_journal(client, "2026-09-10", "中途记录A", [image_upload()])
+    save_journal(client, "2026-09-10", "中途记录B")
+    calls = fake_ai_segmented(monkeypatch, styles=("poetic",))
+    response = post(client, "/api/generate", {"styles": "poetic", "date": "2026-09-10"})
+    assert response.status_code == 200
+    task = response.get_json()["task"]
+    assert task["total"] == 3  # 记录A 带图一段 + 记录B 无图一段 + 终稿一段
+    finished = wait_story_task(client, task["task_id"])
+    assert finished["status"] == "done"
+    record = client.get("/api/rides/2026-09-10").get_json()["record"]
+    assert record["story_segments"][0]["photo"] in record["photos"]
+    assert record["story_segments"][1]["photo"] is None  # 无图组没有图片
+    # 每个组各自成段：组内文案出现在对应分段提示词里，终稿汇总全部分段。
+    assert [c["prompt"]["本组记录"] for c in calls if c["segment"]] == ["中途记录A", "中途记录B"]
+    # 终稿不再直接吃原始组文案，而是把各段小故事汇总进“途中随手记录”。
+    final_prompt = [c["prompt"] for c in calls if not c["segment"]][0]
+    assert final_prompt["途中随手记录"] == [item["text"] for item in record["story_segments"]]
+    html = Path(app.config["OUTPUT_DIR"], "20260910.html").read_text()
+    assert "story-segment--text-only" in html
