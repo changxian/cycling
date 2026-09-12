@@ -1,5 +1,5 @@
-import { postForm, request } from './api.js?v=20260912-groups-1';
-import { collectPhotoFiles } from './photo-files.js?v=20260912-groups-1';
+import { postForm, request } from './api.js';
+import { collectPhotoFiles } from './photo-files.js';
 
 export function initInteractions() {
   const icons = () => window.lucide?.createIcons();

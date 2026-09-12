@@ -142,7 +142,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now cycling
 ```
 
-Gunicorn 启动入口是 `backend.wsgi:app`。将 `deploy/nginx.conf` 放入 Nginx `http {}` 下的配置目录，修改域名和前端 `root`，配置 TLS 后执行 `nginx -t` 再重载。Nginx 必须加载 `mime.types`，使 ES 模块以 JavaScript MIME 类型返回。
+Gunicorn 启动入口是 `backend.wsgi:app`。`deploy/nginx.conf` 是完整 Nginx 配置，应按服务器实际配置位置应用，不能直接放入现有 `http {}` 内；修改域名和前端 `root`、配置 TLS 后执行 `nginx -t` 再重载。Nginx 必须加载 `mime.types`，使 ES 模块以 JavaScript MIME 类型返回。
 
 配置需要 `http_auth_request_module`，可通过 `nginx -V` 检查。`/cycling/` 生成页及其 `/cycling/photos/` 图片可公开访问；`/tmp/` 后台图片仍通过 `/api/auth/check` 检查登录。没有该模块时，删除内部 `/_cycling_auth` location，并将 `/tmp/` 的内容改为 `proxy_pass http://127.0.0.1:8000;`；保留前端与 `/api/` 的分流。
 
@@ -161,24 +161,17 @@ sudo bash deploy/upgrade_backend.sh
 
 两个服务可独立发布。后端升级前脚本会把数据库、会话密钥、导出 HTML 和照片目录备份到 `/var/lib/cycling/backup/backend-<时间戳>/`；前端同理备份到 `frontend-<时间戳>/`。升级后先验证登录与 `/api/meta`，再决定是否需要回滚（脚本输出中附有回滚命令）。数据文件（`instance/`、`/usr/local/nginx/html/` 下的内容）不属于代码，升级时不要覆盖，只更新代码与依赖。
 
-## 验证
+### 接口有数据，但页面提示“还没有照片”
 
-```sh
-.venv/bin/python -m pytest -q
-```
+已确认的一种原因是浏览器缓存了旧版 `views.js`：旧版读取 `journal.photos`、`journal.texts`，当前接口返回 `journal.groups`，因此接口有 5 组时，页面仍把图片和文字都当成空数组。服务器文件版本一致不代表浏览器实际执行的脚本一致。开发者工具“网络”面板可核对脚本是否来自磁盘缓存，以及响应代码读取的字段。
 
-覆盖 JSON 登录与 CSRF 轮换、PUT 鉴权、密钥保护、原有持久化、输入校验、多风格、图片编码、修改、画廊、失败清理与写入回滚。
+临时恢复：在页面按 `Command + Shift + R`（macOS）或 `Ctrl + Shift + R`（Windows/Linux）强制重新加载。本次问题已在用户 Edge 页面确认强制刷新后恢复 5 张图片轮播和 2 条文字。
 
-浏览器测试启动独立的前端代理、后端服务和模拟 AI，不使用真实密钥：
+长期修复：
 
-```sh
-.venv/bin/pip install playwright
-.venv/bin/python -m playwright install chromium
-.venv/bin/python tests/browser_smoke.py
-```
+- `frontend/index.html` 与 `frontend/src/` 中全部模块引用统一使用 `v=20260912-groups-1`。更改前端代码后，应同步更新这些引用的版本号；只给入口脚本加版本号无法使其依赖的旧视图缓存失效。
+- `deploy/nginx.conf` 中 `/src/` 和入口响应使用 `no-store`，关闭条件 304；`/assets/` 使用 `no-cache` 强制重新验证。新响应头不会追溯清除已经缓存的旧资源，因此同时使用版本化 URL。
+- 发布时同步完整 `frontend/index.html`、`frontend/src/`、`frontend/assets/`，并按服务器实际位置更新 Nginx 配置，执行 `nginx -t` 通过后重载。此仓库的 `deploy/nginx.conf` 是含 `events`、`http` 的完整配置，不能直接嵌入另一个 `http` 块。
+- 发布后验证 `/api/journals/2026-09-12` 的 5 组数据对应 5 张图片和 2 条文字，并确认脚本 URL 已携带新版本号。本次不改变数据库、接口字段或图文保存逻辑。
 
-检查完整用户流程、页面直接访问、桌面 1440px / 手机 390px / 320px 布局。截图位于 `test-results/`。真实 AI 连通性及目标服务器 Nginx 配置需要在对应环境验证。
-
-## 素材
-
-摄影：[Kirsten Frank / Unsplash](https://unsplash.com/photos/rCeH116HQAo)，位于 `frontend/assets/cycling.jpg`。图标：[Lucide](https://lucide.dev)，版本 0.468.0，许可证见 `frontend/assets/lucide.LICENSE`。运行时不依赖外部字体或图标 CDN。
+缓存回归测试：安装 Node.js、Playwright 和 Chrome 后运行 `node --test tests/journal_save.test.cjs`。测试真实浏览器缓存旧视图后再访问新入口的流程，验证图片数量、文字内容和轮播切换。

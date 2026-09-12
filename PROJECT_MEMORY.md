@@ -50,6 +50,11 @@ python3 -m venv .venv && source .venv/bin/activate && pip install -r requirement
 - 选择器 `#photo-input` 每次选择会替换待上传列表；拖放会追加。待上传列表支持移除单张，避免此前失败的文件随下一次上传重复提交。
 
 ## 已知问题（非本次引入）
+- **2026-09-12 接口有 5 组、页面却提示无照片的根因已确认**：用户 Edge 的 `views.js` 实际来自磁盘缓存，旧代码读取 `journal.photos`、`journal.texts`；接口已返回 `journal.groups`，旧代码因此渲染空态。服务器文件与本地一致，不代表浏览器执行的版本一致。通过当前页面开发者工具只读确认，强制刷新后已恢复 5 张图片轮播和 2 条文字。
+  - 最终修改仅针对缓存：`index.html` 静态资源与整个 ES 模块依赖链统一携带 `?v=20260912-groups-1`；Nginx `/src/` 和入口禁止存储及条件 304，`/assets/` 强制重新验证。以后发布前端变更时同步更新入口和模块引用中的版本号，不能只改入口脚本。
+  - 上一轮轮播定位和图片加载提示改动已还原；空文字是用户未填写，不是数据丢失；图片文件较大并非“无照片”空态根因。不改后端字段，也不向接口加冗余旧字段。
+  - `tests/journal_save.test.cjs` 用真实浏览器 HTTP 缓存先缓存旧字段视图，再加载新入口及用户提供的 5 组数据，验证 5 张图片、2 条文字及文字切换。修复前失败 0 != 5，修复后通过；54 项后端测试及 2 项照片文件测试也全部通过。运行：`node --test tests/journal_save.test.cjs`（需安装 Playwright 和 Chrome，可用 `NODE_PATH` 指向现有 Playwright 目录）。
+  - 当前浏览器通过强制刷新已恢复；本地缓存修复尚未发布到服务器。部署需同步完整前端并应用 Nginx 配置，先 `nginx -t` 再重载；本机没有 Nginx，不能声称已验证服务器配置加载。
 - **2026-09-12 MPO 上传已修复**：用户样本 `IMG_8051.PNG` 实际被 Pillow 识别为 MPO（多图像 JPEG），被 `save_photos` 白名单拒绝。后端现接受 MPO，使用主图并按方向信息转正、转存普通 JPEG。真实样本经隔离 `/api/journals` 保存和读取验证通过；54 项后端测试通过，含大写 PNG 的 10 种模式/MIME 组合及 MPO 主图回归。此前 HEIF 和前端队列修改并非该样本根因。不要将文件后缀当作真实编码证据。
 - `tests/browser_smoke.py` 相对当前 UI 已过期：断言 `[name="api_key"]`（设置页保存后已移除 name）与 `.photo-preview`（已重构为 `.photo-carousel`）均会失败。属既有失配，未在本次范围内修改。
 
