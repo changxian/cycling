@@ -1,4 +1,11 @@
 # 骑行时光机 · 项目记忆
+## 2026-09-13 新增架构参考文档与 AGENTS.md 会话启动配置
+- 变更说明：为后续会话提供快速上手参考，避免每次从头熟悉项目；并规范新会话开工流程。
+- 新增 `ARCHITECTURE.md`：基于实际代码核实，含 7 节——项目定位、技术栈（原生 JS 无构建 + Flask 3.1 + SQLite + Pillow + dev_server 代理 + Nginx/gunicorn）、目录职责、业务架构（账号隔离/叠加选图/多段45字约束/同日多故事归档/缩略图/缓存版本机制）、测试命令表（标注 browser_smoke.py 已过期勿用）、新功能作业流程（先写复现测试再实现）、常见坑。
+- `AGENTS.md` 语言规则：输出范围扩至过程性说明与工具调用前后文字；状态码/文件名可保留原文但首次出现须中文解释；专有名词保留但解释须中文；顺手修正笔误 commit mesage → commit message。
+- `AGENTS.md` 新增「项目记忆与架构参考（新会话必读）」节：新会话先读 ARCHITECTURE.md 再读 PROJECT_MEMORY.md 最近 2~3 条，不重头梳理；两文档分工（ARCHITECTURE.md 存稳定事实、PROJECT_MEMORY.md 只追加明细）；新功能必须同步新增测试用例；中断时进度写入记忆条目。
+- 补记：「2026-09-12 图片选择改为叠加」条目中挂起的浏览器回归已补跑通过（journal_save.test.cjs 1/1，需沙箱外监听 127.0.0.1；photo_files.test.mjs 3/3）。
+- 验证：ARCHITECTURE.md 各节事实逐一对照代码与 README 核实（目录、路由、测试文件、依赖版本）；AGENTS.md 结构检查无误。本轮未改业务代码。
 
 ## 2026-09-13 多账号注册登录与画廊隔离
 - 变更说明：新增注册、多账号登录及账号数据隔离；普通账号只看自己的画廊，root看全部，故事/图片存储目录和全局编号命名规则不变。
@@ -113,4 +120,4 @@ python3 -m venv .venv && source .venv/bin/activate && pip install -r requirement
 - `frontend/src/photo-files.js`：`collectPhotoFiles` 移除 `replace` 选项，统一追加；混入不支持格式时保留原列表并返回错误提示。
 - 前端全依赖链缓存版本：`20260912-photo-stack-1`（覆盖旧 `20260912-stories-2`）。
 - 测试：`tests/photo_files.test.mjs` 更新为叠加语义（含 5+1=6 用例与混入非法格式保留原列表用例）；`tests/journal_save.test.cjs` 既有断言（连续两次选择必须累加、6 张）即为复现测试。
-- 验证状态：单测 3/3 通过、两文件 `node --check` 通过；浏览器回归因审批服务 503 未运行，需 `NODE_PATH=/Users/changx/.hermes/hermes-agent/node_modules node --test tests/journal_save.test.cjs` 补跑。
+- 验证状态：单测 3/3 通过、两文件 `node --check` 通过；浏览器回归已补跑通过（沙箱外运行）：`journal_save.test.cjs` 1/1，`photo_files.test.mjs` 3/3。
