@@ -37,6 +37,11 @@
 
 > 目标：新会话快速恢复上下文，不必重读目录结构。更新原则：改动核心结构/数据模型/运行方式时同步这里。
 
+## 2026-09-14 多 AI 配置优先级与保存进度
+- 变更说明：账号支持多套 AI 配置，按 priority 从小到大尝试；生成异常自动回退下一套配置；保存本次记录显示进行中状态。
+- 文件明细：`backend/accounts.py` 新增 `user_ai_configs` 并兼容迁移；`backend/app.py` 增加配置列表/删除 API、同步与异步生成回退；`frontend/src/views.js` 与 `frontend/src/interactions.js` 增加配置列表及保存状态；前端缓存版本更新为 `20260914-ai-configs-1`；新增优先级回退测试。
+- 验证状态：`.venv/bin/python -m pytest tests/test_app.py tests/test_accounts.py -q` 91 项通过；Python/JavaScript 语法检查通过。
+
 ## 一句话
 前后端分离的私人骑行手记：原生 JS 五页面（登录/记录/设置/故事方案/画廊）+ Flask 后端（JSON API、SQLite、照片、AI、HTML 导出）。两端独立运行，本地经代理连接，生产走 Nginx。
 

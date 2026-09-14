@@ -1,5 +1,5 @@
-import { postForm, request } from './api.js?v=20260913-accounts-1';
-import { collectPhotoFiles } from './photo-files.js?v=20260913-accounts-1';
+import { postForm, request } from './api.js?v=20260914-ai-configs-1';
+import { collectPhotoFiles } from './photo-files.js?v=20260914-ai-configs-1';
 
 export function initInteractions() {
   const icons = () => window.lucide?.createIcons();
@@ -66,28 +66,26 @@ export function initInteractions() {
       icons();
     });
   });
-  const settingsForm = document.getElementById('settings-form');
-  settingsForm?.addEventListener('submit', async event => {
+  const settingsForms = document.querySelectorAll('.settings-form');
+  settingsForms.forEach(settingsForm => settingsForm.addEventListener('submit', async event => {
     event.preventDefault();
     const button = settingsForm.querySelector('button[type="submit"]');
-    const message = document.getElementById('settings-message');
+    const message = settingsForm.querySelector('.settings-message') || document.getElementById('settings-message');
     button.disabled = true;
     message.hidden = true;
     try {
       const result = await postForm(settingsForm.action, new FormData(settingsForm));
       showMessage(message, result.message, true);
-      const key = document.getElementById('api-key');
-      key.value = key.dataset.maskedValue || '';
-      key.removeAttribute('name');
-      key.readOnly = true;
-      key.dataset.masked = 'true';
-      key.required = false;
-      key.placeholder = '';
-      key.closest('label').querySelector('.required').textContent = '已保存';
-      settingsForm.querySelector('.settings-status').innerHTML = '<span class="status-dot connected"></span>配置已保存';
+      window.location.reload();
     } catch (error) { showMessage(message, error.message); }
     finally { button.disabled = false; }
-  });
+  }));
+  document.querySelectorAll('.delete-ai-config').forEach(button => button.addEventListener('click', async () => {
+    if (!window.confirm('确定删除这套 AI 配置吗？')) return;
+    button.disabled = true;
+    try { await request('/api/config/' + encodeURIComponent(button.dataset.configId), { method: 'DELETE' }); window.location.reload(); }
+    catch (error) { const message = button.closest('form').querySelector('.settings-message'); showMessage(message, error.message); button.disabled = false; }
+  }));
   const storySchemesForm = document.getElementById('story-schemes-form');
   const schemeStyle = document.getElementById('story-scheme-style');
   const updateSchemeList = () => document.querySelectorAll('[data-scheme-list]').forEach(list => {
@@ -423,6 +421,8 @@ export function initInteractions() {
     journalSave.disabled = true;
     busy = true;
     try {
+      generationStatus.hidden = false;
+      generationStatus.textContent = '正在保存本次记录…';
       await postForm('/api/journals', data);
       // Keep the user in the same editor. Reloading refreshes the saved
       // carousel without turning this action into a navigation step.

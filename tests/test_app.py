@@ -849,6 +849,23 @@ def test_generation_failure_keeps_journal(app, client, monkeypatch, segmented):
     assert client.get("/api/journals/2026-09-12").get_json()["journal"] == before
 
 
+def test_ai_configs_use_priority_and_fallback(app, client, monkeypatch):
+    configure(client)
+    assert post(client, "/api/config", {"base_url": "https://ai.example/low", "api_key": "low-key", "priority": "2", "new_config": "1"}).status_code == 200
+    configs = client.get("/api/config").get_json()["configs"]
+    assert [item["priority"] for item in configs] == [1, 2]
+    calls = []
+    def generate(config, *args, **kwargs):
+        calls.append(config["api_key"])
+        if config["api_key"] == "private-test-key":
+            raise RuntimeError("primary failed")
+        return "回退故事", [{"style": "poetic", "text": "回退文案"}]
+    monkeypatch.setattr("backend.app.generate_copy", generate)
+    result = post(client, "/api/generate", {"date": "2026-09-14", "styles": "poetic"})
+    assert result.status_code == 200
+    assert calls == ["private-test-key", "low-key"]
+
+
 def test_existing_html_is_reserved_and_restart_keeps_story_metadata(app, client, monkeypatch):
     configure(client)
     fake_ai(monkeypatch, title="新故事")

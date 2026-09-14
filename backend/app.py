@@ -708,8 +708,12 @@ def create_app(test_config=None):
         g.user = None
         return jsonify(session_payload())
 
+    def account_configs():
+        return get_db().execute("SELECT * FROM user_ai_configs WHERE owner_id = ? ORDER BY priority ASC, id ASC", (g.owner_id,)).fetchall()
+
     def account_config():
-        return get_db().execute("SELECT * FROM user_ai_config WHERE owner_id = ?", (g.owner_id,)).fetchone()
+        rows = account_configs()
+        return rows[0] if rows else None
 
     @app.get("/api/meta")
     def metadata():
@@ -723,7 +727,9 @@ def create_app(test_config=None):
     @app.get("/api/config")
     def api_config():
         row = account_config()
-        return jsonify(
+        configs = account_configs()
+        serialized = [{"id": r["id"], "priority": r["priority"], "base_url": r["base_url"], "model": r["model"], "has_key": True, "api_key_masked": mask_api_key(r["api_key"])} for r in configs]
+        payload = dict(
             base_url=row["base_url"] if row else "",
             model=row["model"] if row else "gpt-4o",
             has_key=bool(row),
@@ -732,6 +738,9 @@ def create_app(test_config=None):
                 "story_schemes": json.loads(row["story_schemes"])
             }) if row else {},
         )
+        if len(configs) > 1:
+            payload["configs"] = serialized
+        return jsonify(payload)
 
     @app.post("/api/config")
     @app.put("/api/config")
@@ -753,6 +762,13 @@ def create_app(test_config=None):
         key = str(source.get("api_key", "")).strip()
         model = str(source.get("model", "")).strip() or "gpt-4o"
         existing = account_config()
+        config_id = source.get("config_id")
+        if config_id in (None, "") and not source.get("new_config") and account_configs():
+            config_id = account_configs()[0]["id"]
+        try:
+            config_id = int(config_id) if config_id not in (None, "") else None
+        except (TypeError, ValueError):
+            raise UserError("配置编号无效。")
         has_story_schemes = "story_schemes" in source or any(
             "story_scheme_" + style in source for style in STYLE_MAP
         )
@@ -767,12 +783,43 @@ def create_app(test_config=None):
             raise UserError("请输入有效的 API Key。")
         if len(model) > 200 or len(base_url) > 2000:
             raise UserError("模型名称或地址过长。")
-        get_db().execute(
-            "INSERT INTO user_ai_config (owner_id, base_url, api_key, model, story_schemes) VALUES (?, ?, ?, ?, ?) ON CONFLICT(owner_id) DO UPDATE SET base_url=excluded.base_url, api_key=excluded.api_key, model=excluded.model, story_schemes=excluded.story_schemes",
-            (g.owner_id, base_url, key, model, json.dumps(story_schemes, ensure_ascii=False)),
-        )
+        if config_id:
+            target = get_db().execute("SELECT * FROM user_ai_configs WHERE id = ? AND owner_id = ?", (config_id, g.owner_id)).fetchone()
+            if not target:
+                raise UserError("AI 配置不存在。", 404)
+            try:
+                priority = int(source.get("priority", target["priority"]))
+            except (TypeError, ValueError):
+                raise UserError("优先级必须是正整数。")
+            if priority < 1:
+                raise UserError("优先级必须从 1 开始。")
+            get_db().execute("UPDATE user_ai_configs SET base_url=?, api_key=?, model=?, priority=?, story_schemes=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND owner_id=?", (base_url, key, model, priority, json.dumps(story_schemes, ensure_ascii=False), config_id, g.owner_id))
+            if priority == 1:
+                get_db().execute("UPDATE user_ai_config SET base_url=?, api_key=?, model=?, story_schemes=? WHERE owner_id=?", (base_url, key, model, json.dumps(story_schemes, ensure_ascii=False), g.owner_id))
+        else:
+            try:
+                priority = int(source.get("priority", len(account_configs()) + 1))
+            except (TypeError, ValueError):
+                raise UserError("优先级必须是正整数。")
+            if priority < 1:
+                raise UserError("优先级必须从 1 开始。")
+            get_db().execute("UPDATE user_ai_configs SET priority = priority + 1 WHERE owner_id = ? AND priority >= ?", (g.owner_id, priority))
+            get_db().execute("INSERT INTO user_ai_configs (owner_id, base_url, api_key, model, priority, story_schemes) VALUES (?, ?, ?, ?, ?, ?)", (g.owner_id, base_url, key, model, priority, json.dumps(story_schemes, ensure_ascii=False)))
+            if priority == 1:
+                get_db().execute("INSERT INTO user_ai_config (owner_id, base_url, api_key, model, story_schemes) VALUES (?, ?, ?, ?, ?) ON CONFLICT(owner_id) DO UPDATE SET base_url=excluded.base_url, api_key=excluded.api_key, model=excluded.model, story_schemes=excluded.story_schemes", (g.owner_id, base_url, key, model, json.dumps(story_schemes, ensure_ascii=False)))
         get_db().commit()
         return jsonify(message="AI 配置已保存。")
+
+    @app.delete("/api/config/<int:config_id>")
+    def delete_config(config_id):
+        configs = account_configs()
+        if len(configs) <= 1:
+            raise UserError("至少保留一套 AI 配置。")
+        result = get_db().execute("DELETE FROM user_ai_configs WHERE id = ? AND owner_id = ?", (config_id, g.owner_id))
+        if result.rowcount != 1:
+            raise UserError("AI 配置不存在。", 404)
+        get_db().commit()
+        return jsonify(message="AI 配置已删除。")
 
     @app.get("/api/story-schemes")
     def story_schemes():
@@ -803,8 +850,8 @@ def create_app(test_config=None):
         })
         schemes = normalize_story_schemes({"story_schemes": schemes})
         get_db().execute(
-            "UPDATE user_ai_config SET story_schemes = ? WHERE owner_id = ?",
-            (json.dumps(schemes, ensure_ascii=False), g.owner_id),
+            "UPDATE user_ai_configs SET story_schemes = ? WHERE id = ? AND owner_id = ?",
+            (json.dumps(schemes, ensure_ascii=False), row["id"], g.owner_id),
         )
         get_db().commit()
         return jsonify(message="故事方案已添加。", story_schemes=schemes)
@@ -829,7 +876,7 @@ def create_app(test_config=None):
                 break
         if not removed:
             raise UserError("该故事方案不存在或已删除。", 404)
-        get_db().execute("UPDATE user_ai_config SET story_schemes = ? WHERE owner_id = ?", (json.dumps(schemes, ensure_ascii=False), g.owner_id))
+        get_db().execute("UPDATE user_ai_configs SET story_schemes = ? WHERE id = ? AND owner_id = ?", (json.dumps(schemes, ensure_ascii=False), row["id"], g.owner_id))
         get_db().commit()
         return jsonify(message="故事方案已删除。", story_schemes=schemes)
 
@@ -988,35 +1035,37 @@ def create_app(test_config=None):
             )
             get_db().commit()
 
-    def run_story_task(task_id, data, journal, config, units, photo_dir, owner_id):
+    def run_story_task(task_id, data, journal, configs, units, photo_dir, owner_id):
         """Background worker: one AI call per unit, then the final story."""
         with app.app_context():
             g.app_database = app.config["DATABASE"]
             g.owner_id = owner_id
-            segments = []
-            references = build_story_references(config, data["styles"])
-            try:
-                for photos, text in units:
-                    segments.append(
-                        generate_segment_copy(config, data, text, photos, references, photo_dir, segments)
-                    )
-                    update_story_task(task_id, done=len(segments), segments=segments)
-                ai_data = dict(data)
-                ai_data["photos"] = []
-                ai_data["journal_entries"] = segments
-                data["title"], data["entries"] = generate_copy(
-                    config, ai_data, photo_dir, references
-                )
-                data["story_segments"] = [
-                    {"photo": photos[0] if photos else None, "text": segment}
-                    for (photos, _), segment in zip(units, segments)
-                ]
-                persist_record(data, journal)
-                update_story_task(task_id, done=len(units) + 1, status="done")
-            except UserError as error:
-                update_story_task(task_id, status="failed", error=error.message)
-            except Exception:
-                update_story_task(task_id, status="failed", error="骑行故事创建失败，请稍后重试。")
+            g.is_admin = bool(get_db().execute("SELECT is_admin FROM users WHERE id = ?", (owner_id,)).fetchone()[0])
+            last_error = None
+            for raw_config in configs:
+                config = dict(raw_config)
+                config["public_network_only"] = not g.is_admin
+                config["story_schemes"] = json.loads(config.get("story_schemes") or "{}")
+                segments = []
+                references = build_story_references(config, data["styles"])
+                try:
+                    for photos, text in units:
+                        segments.append(generate_segment_copy(config, data, text, photos, references, photo_dir, segments))
+                        update_story_task(task_id, done=len(segments), segments=segments)
+                    ai_data = dict(data)
+                    ai_data["photos"] = []
+                    ai_data["journal_entries"] = segments
+                    data["title"], data["entries"] = generate_copy(config, ai_data, photo_dir, references)
+                    data["story_segments"] = [{"photo": photos[0] if photos else None, "text": segment} for (photos, _), segment in zip(units, segments)]
+                    persist_record(data, journal)
+                    update_story_task(task_id, done=len(units) + 1, status="done")
+                    return
+                except UserError as error:
+                    last_error = error
+                except Exception as error:
+                    last_error = error
+            message = last_error.message if isinstance(last_error, UserError) else "骑行故事创建失败，请稍后重试。"
+            update_story_task(task_id, status="failed", error=message)
 
     @app.get("/api/journals/<ride_date>")
     def get_journal(ride_date):
@@ -1146,8 +1195,8 @@ def create_app(test_config=None):
 
     @app.post("/api/generate")
     def upload():
-        config = account_config()
-        if not config:
+        configs = account_configs()
+        if not configs:
             raise UserError("请先在 AI 配置中保存 Base URL 和 API Key。")
         source = request.get_json(silent=True) if request.is_json else request.form
         if not isinstance(source, dict) and not hasattr(source, "getlist"):
@@ -1186,15 +1235,28 @@ def create_app(test_config=None):
             data["background_music"] = bool(journal.get("background_music")) or str(source.get("background_music", "")).lower() in ("1", "true", "on", "yes")
             journal["background_music"] = data["background_music"]
             data["music_mood"] = MUSIC_MOODS.get(data["styles"][0], "安静氛围") if data["background_music"] else ""
-            config = dict(config)
-            config["public_network_only"] = not g.is_admin
-            config["story_schemes"] = json.loads(config.get("story_schemes") or "{}")
             photo_dir = Path(app.config["PHOTO_DIR"])
             units = story_units(journal)
             if len(units) <= 1:
                 # 当天只有一张图片（或无图片）：保持原有逻辑，等待生成故事。
-                data["title"], data["entries"] = generate_copy(config, data, photo_dir)
-                filename = persist_record(data, journal)
+                last_error = None
+                for raw_config in configs:
+                    config = dict(raw_config)
+                    config["public_network_only"] = not g.is_admin
+                    config["story_schemes"] = json.loads(config.get("story_schemes") or "{}")
+                    try:
+                        data["title"], data["entries"] = generate_copy(config, data, photo_dir)
+                    except UserError as error:
+                        last_error = error
+                    except Exception as error:
+                        last_error = error
+                    else:
+                        filename = persist_record(data, journal)
+                        break
+                else:
+                    if isinstance(last_error, UserError):
+                        raise last_error
+                    raise UserError("骑行故事创建失败，请稍后重试。", 502)
             else:
                 # 多张图片或多组记录：先创建任务并返回，后台按总次数逐张生成
                 # 图片对应文案，全部完成后再生成最终骑行故事。
@@ -1202,7 +1264,7 @@ def create_app(test_config=None):
                 persist_journal(journal)
                 threading.Thread(
                     target=run_story_task,
-                    args=(task["task_id"], data, journal, config, units, photo_dir, g.owner_id),
+                    args=(task["task_id"], data, journal, configs, units, photo_dir, g.owner_id),
                     daemon=True,
                 ).start()
                 session["last_date"] = data["date"]

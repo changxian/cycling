@@ -25,6 +25,18 @@ def initialize_accounts(db, username, password):
             api_key TEXT NOT NULL, model TEXT NOT NULL,
             story_schemes TEXT NOT NULL DEFAULT '{}'
         );
+        CREATE TABLE IF NOT EXISTS user_ai_configs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_id INTEGER NOT NULL,
+            base_url TEXT NOT NULL,
+            api_key TEXT NOT NULL,
+            model TEXT NOT NULL,
+            priority INTEGER NOT NULL DEFAULT 1,
+            story_schemes TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(owner_id, priority)
+        );
     """)
     db.execute("BEGIN IMMEDIATE")
     admin = db.execute("SELECT id, password_hash FROM users WHERE is_admin = 1").fetchone()
@@ -50,6 +62,10 @@ def initialize_accounts(db, username, password):
     db.execute(
         "INSERT OR IGNORE INTO user_ai_config (owner_id, base_url, api_key, model, story_schemes) "
         "SELECT ?, base_url, api_key, model, story_schemes FROM ai_config", (admin_id,),
+    )
+    db.execute(
+        "INSERT OR IGNORE INTO user_ai_configs (owner_id, base_url, api_key, model, priority, story_schemes) "
+        "SELECT owner_id, base_url, api_key, model, 1, story_schemes FROM user_ai_config"
     )
     db.execute("CREATE INDEX IF NOT EXISTS story_records_owner ON story_records (owner_id)")
     db.execute("CREATE INDEX IF NOT EXISTS story_tasks_owner_date ON story_tasks (owner_id, date, status)")

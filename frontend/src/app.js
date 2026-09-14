@@ -1,6 +1,6 @@
-import { request } from './api.js?v=20260913-accounts-1';
-import { initInteractions } from './interactions.js?v=20260913-accounts-1';
-import { navigation, loginView, editorView, settingsView, storySchemesView, galleryView, resultView, errorView } from './views.js?v=20260913-accounts-1';
+import { request } from './api.js?v=20260914-ai-configs-1';
+import { initInteractions } from './interactions.js?v=20260914-ai-configs-1';
+import { navigation, loginView, editorView, settingsView, storySchemesView, galleryView, resultView, errorView } from './views.js?v=20260914-ai-configs-1';
 
 async function start() {
   const main = document.getElementById('main-content');

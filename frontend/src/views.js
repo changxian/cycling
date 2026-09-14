@@ -59,13 +59,19 @@ export function editorView(meta, record = {}, journal = {}) {
 }
 
 export function settingsView(config) {
+  const configs = config.configs || (config.has_key ? [{ id: '', priority: 1, base_url: config.base_url, model: config.model, has_key: true, api_key_masked: config.api_key_masked }] : []);
   return `<div class="settings-layout"><div class="page-heading"><div><div class="eyebrow"><span></span> THE WORDS BEHIND THE RIDE</div><h1>AI 配置</h1><p class="lead">连接你的创作搭档。</p></div><span class="heading-icon">${icon('sliders-horizontal')}</span></div>
-    <form id="settings-form" action="/api/config" method="post"><div class="settings-status"><span class="status-dot ${config.has_key ? 'connected' : ''}"></span>${config.has_key ? '配置已保存' : '尚未配置'}</div>
-    <label>Base URL <span class="required">必填</span><input type="url" name="base_url" value="${e(config.base_url)}" placeholder="https://api.example.com/v1" required autocomplete="url"></label>
-    <label>API Key <span class="required">${config.has_key ? '已保存' : '必填'}</span><span class="password-field"><input type="password" id="api-key" ${config.has_key ? `value="${e(config.api_key_masked)}" readonly data-masked="true" data-masked-value="${e(config.api_key_masked)}" aria-label="已保存的 API Key（已脱敏）"` : 'name="api_key" required placeholder="sk-…"'} autocomplete="new-password"><button class="icon-button password-toggle" type="button" data-target="api-key" aria-label="${config.has_key ? '更换密钥' : '显示密钥'}" title="${config.has_key ? '更换密钥' : '显示密钥'}">${icon(config.has_key ? 'pencil' : 'eye')}</button></span>${config.has_key ? '<small class="field-hint">已保存：留空直接保存会继续使用当前密钥</small>' : ''}</label>
-    <label>模型名称 <span class="required">选填</span><input name="model" placeholder="gpt-4o" value="${e(config.model)}"></label>
+    <div class="settings-status"><span class="status-dot ${configs.length ? 'connected' : ''}"></span>${configs.length ? `已保存 ${configs.length} 套配置，按优先级自动切换` : '尚未配置'}</div>
+    <div class="ai-config-list">${configs.map((item, index) => `<form class="settings-form" action="/api/config" method="post"><input type="hidden" name="config_id" value="${e(item.id)}"><label>优先级<input type="number" name="priority" min="1" value="${e(item.priority || index + 1)}" required></label>
+    <label>Base URL <span class="required">必填</span><input type="url" name="base_url" value="${e(item.base_url)}" placeholder="https://api.example.com/v1" required autocomplete="url"></label>
+    <label>API Key <span class="required">已保存</span><span class="password-field"><input type="password" id="api-key-${e(item.id || index)}" value="${e(item.api_key_masked)}" readonly data-masked="true" data-masked-value="${e(item.api_key_masked)}" aria-label="已保存的 API Key（已脱敏）" autocomplete="new-password"><button class="icon-button password-toggle" type="button" data-target="api-key-${e(item.id || index)}" aria-label="更换密钥" title="更换密钥">${icon('pencil')}</button></span><small class="field-hint">留空直接保存会继续使用当前密钥</small></label>
+    <label>模型名称 <span class="required">选填</span><input name="model" placeholder="gpt-4o" value="${e(item.model)}"></label><div class="settings-actions"><button type="submit" class="button primary">${icon('save')}保存</button>${configs.length > 1 ? `<button type="button" class="button secondary delete-ai-config" data-config-id="${e(item.id)}">${icon('trash-2')}删除</button>` : ''}</div><div class="settings-message notice" role="status" hidden></div></form>`).join('')}</div>
+    <form id="settings-form" class="settings-form settings-form-new" action="/api/config" method="post"><input type="hidden" name="new_config" value="1"><h2>新增 AI 配置</h2>
+    <label>Base URL <span class="required">必填</span><input type="url" name="base_url" value="" placeholder="https://api.example.com/v1" required autocomplete="url"></label>
+    <label>API Key <span class="required">必填</span><span class="password-field"><input type="password" id="api-key" name="api_key" required placeholder="sk-…" autocomplete="new-password"><button class="icon-button password-toggle" type="button" data-target="api-key" aria-label="显示密钥" title="显示密钥">${icon('eye')}</button></span></label>
+    <label>模型名称 <span class="required">选填</span><input name="model" placeholder="gpt-4o" value=""></label>
     <p class="settings-note">${icon('image')}上传照片时，请使用支持图片输入的模型。</p><div id="settings-message" class="notice" role="status" hidden></div>
-    <div class="settings-actions"><a class="text-link" href="/">${icon('arrow-left')}返回记录</a><button type="submit" class="button primary">${icon('save')}保存配置</button></div></form></div>`;
+    <div class="settings-actions"><a class="text-link" href="/">${icon('arrow-left')}返回记录</a><button type="submit" class="button primary">${icon('plus')}添加配置</button></div></form></div>`;
 }
 
 export function storySchemesView(schemes = {}) {
