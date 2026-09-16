@@ -42,6 +42,21 @@
 - 文件明细：`backend/accounts.py` 新增 `user_ai_configs` 并兼容迁移；`backend/app.py` 增加配置列表/删除 API、同步与异步生成回退；`frontend/src/views.js` 与 `frontend/src/interactions.js` 增加配置列表及保存状态；前端缓存版本更新为 `20260914-ai-configs-1`；新增优先级回退测试。
 - 验证状态：`.venv/bin/python -m pytest tests/test_app.py tests/test_accounts.py -q` 91 项通过；Python/JavaScript 语法检查通过。
 
+## 2026-09-14 root 共享 AI 配置继承
+- 变更说明：新注册账号自动复制 root 的 `priority=99` AI 配置；root 修改该配置时同步更新所有普通账号的同优先级配置。
+- 文件明细：`backend/app.py` 注册事务增加共享配置复制，root 编辑优先级99时广播更新；`tests/test_accounts.py` 新增继承与同步回归测试。
+- 验证状态：`.venv/bin/python -m pytest tests/test_app.py tests/test_accounts.py -q` 92 项通过；新增测试先失败后通过。
+
+## 2026-09-14 修复配置仅改优先级误报 API Key
+- 变更说明：编辑已有 AI 配置时，空 API Key 现在按 `config_id` 复用目标配置密钥，不再错误使用当前最高优先级配置进行 Base URL 比较。
+- 文件明细：`backend/app.py` 提前查询目标配置并复用其密钥；`tests/test_app.py` 新增只修改 priority 的回归测试。
+- 验证状态：`.venv/bin/python -m pytest tests/test_app.py tests/test_accounts.py -q` 93 项通过；回归测试先失败后通过，Python/JavaScript 语法检查通过。
+
+## 2026-09-14 修复 root 新增共享配置未同步已有账号
+- 变更说明：root 新增 `priority=99` 配置时，使用插入或更新逻辑同步所有已注册普通账号；root 编辑该配置继续同步，缺失配置也会自动补齐。
+- 文件明细：`backend/app.py` 新增 `sync_shared_config`，接入配置新增和编辑分支；`tests/test_accounts.py` 新增先注册用户、后创建 root 共享配置的回归测试。
+- 验证状态：`.venv/bin/python -m pytest tests/test_app.py tests/test_accounts.py -q` 94 项通过；新增测试先失败后通过。
+
 ## 一句话
 前后端分离的私人骑行手记：原生 JS 五页面（登录/记录/设置/故事方案/画廊）+ Flask 后端（JSON API、SQLite、照片、AI、HTML 导出）。两端独立运行，本地经代理连接，生产走 Nginx。
 
