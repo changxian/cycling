@@ -51,7 +51,7 @@ PROJECT_MEMORY.md     每次变更的明细记忆（新会话必读最近条目�
 - **记录页（/）**：照片选择与拖放统一为**叠加**（`pendingFiles` 是待保存权威列表）；轮播预览区分已保存（服务器缩略图）与待保存（本地对象 URL）。
 - **故事生成**：`story_units(journal) > 1` 走多段路径；每段 ≤45 字，携带全部前文防重复，`SequenceMatcher` 相似度 ≥0.8 本地拦截；单段/汇总 100~200 字。同步与异步任务共用同一持久化逻辑。
 - **归档**：`persist_record` 在同一 SQLite 写事务内分配 `YYYYMMDD.html`、`YYYYMMDD_2.html` 编号文件名，存 `story_records(payload)`，失败回滚。`rides` 表按日期存最新结果，兼容旧查询。
-- **照片**：上传生成 <200KB 缩略图存 `PHOTO_DIR/thumbs/`；原图登录可见，`/cycling/photos/thumbs/` 公开；HEIC 后端转码；MPO 取主图。
+- **照片**：上传生成 <200KB 缩略图存 `PHOTO_DIR/thumbs/`；记录页与故事详情接口按需返回总量不超过 2MB 的 `data:image/jpeg;base64,...` 缩略图预览，故事详情点击图片访问登录保护的原图；画廊继续使用懒加载缩略图 URL；`/cycling/photos/thumbs/` 公开；HEIC 后端转码；MPO 取主图。
 - **前端缓存**：全依赖链缓存版本号写在 `index.html` 与各 JS（形如 `20260913-accounts-1`），改前端后必须全链升版，否则浏览器执行旧代码。
 
 ## 5. 测试与验证

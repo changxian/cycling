@@ -57,6 +57,11 @@
 - 文件明细：`backend/app.py` 新增 `sync_shared_config`，接入配置新增和编辑分支；`tests/test_accounts.py` 新增先注册用户、后创建 root 共享配置的回归测试。
 - 验证状态：`.venv/bin/python -m pytest tests/test_app.py tests/test_accounts.py -q` 94 项通过；新增测试先失败后通过。
 
+## 2026-10-15 图片预览改为内嵌缩略图、详情点击原图
+- 变更说明：记录页和故事详情接口按需返回缩略图 `data:image/jpeg;base64,...`，减少详情页额外图片请求；故事详情点击图片改为打开登录保护的原图；画廊列表继续使用懒加载缩略图 URL，避免 `/api/rides` 响应膨胀。
+- 文件明细：`backend/app.py` 新增预览数据组装，单个响应内嵌缩略图原始字节总量上限 2MB，不写入 SQLite；`frontend/src/views.js` 区分预览源和原图链接；`frontend/index.html`、`frontend/src/{app,api,interactions}.js` 更新缓存版本为 `20261015-photo-data-1`；`tests/test_app.py`、`tests/thumbnail_views.test.mjs` 增加接口和视图回归。
+- 验证状态：`.venv/bin/python -m pytest tests/test_app.py tests/test_accounts.py tests/test_safe_http.py -q` 108 项通过；`node --test tests/photo_files.test.mjs tests/thumbnail_views.test.mjs` 4 项通过；JS/Python 语法检查与 `git diff --check` 通过；`ponytail-review`：Lean already. Ship.
+
 ## 一句话
 前后端分离的私人骑行手记：原生 JS 五页面（登录/记录/设置/故事方案/画廊）+ Flask 后端（JSON API、SQLite、照片、AI、HTML 导出）。两端独立运行，本地经代理连接，生产走 Nginx。
 

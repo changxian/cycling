@@ -5,6 +5,8 @@ const e = escapeHtml;
 const icon = name => `<i data-lucide="${e(name)}"></i>`;
 const displayDate = date => e(date).replaceAll('-', ' / ');
 const photoUrl = name => `/tmp/thumbs/${encodeURIComponent(name)}.jpg`;
+const originalPhotoUrl = name => `/tmp/${encodeURIComponent(name)}`;
+const previewUrl = (previews, name) => previews?.[name] || photoUrl(name);
 
 export function navigation(authenticated, route, username = '') {
   const links = [['/', 'circle-plus', '记录骑行'], ['/gallery', 'images', '时光画廊'], ['/settings', 'sliders-horizontal', 'AI 配置'], ['/story-schemes', 'book-open', '故事方案']];
@@ -30,6 +32,7 @@ export function loginView(register = false) {
 
 export function editorView(meta, record = {}, journal = {}) {
   const groups = journal.groups || [];
+  const previews = journal.photo_previews || {};
   const photoSlides = groups.flatMap(group => (group.photos || []).map(photo => ({ group, photo })));
   const textSlides = groups.filter(group => group && group.text);
   return `<div class="workspace"><div class="page-heading"><div><div class="eyebrow"><span></span> A DAY ON TWO WHEELS</div><h1>${record.date ? '再写这一程' : '记录这一程'}</h1><p class="lead">留住沿途风景，也留住此刻的自己。</p></div><span class="date-stamp">${icon('calendar-days')}${displayDate(meta.today)}</span></div>
@@ -39,7 +42,7 @@ export function editorView(meta, record = {}, journal = {}) {
     <div class="metrics-form"><label class="date-field">骑行日期<input type="date" name="date" value="${e(record.date || meta.today)}"></label>
     ${meta.metrics.map(([key, label, unit]) => `<label>${e(label)}<span class="input-unit"><input name="${e(key)}" ${key === 'duration' ? 'type="text" inputmode="text" placeholder="02:30" pattern="[0-9]{1,3}:[0-5][0-9]"' : 'type="number" min="0" max="100000" step="any" placeholder="—"'} value="${e(record[key] ?? '')}"><span>${e(unit)}</span></span></label>`).join('')}</div></section>
     <section class="form-section journey-section"><div class="section-heading"><span class="section-number">02</span><h2>沿途照片</h2><span class="optional">选择后即可预览</span><span id="photo-count" class="section-meta">${photoSlides.length} 张</span></div>
-      <div class="journal-carousel photo-carousel" data-carousel>${photoSlides.length ? `<div class="carousel-track">${photoSlides.map(({ group, photo }, index) => `<div class="carousel-slide ${index ? '' : 'is-active'}" data-group-id="${e(group.id)}" data-retained="${e(photo)}"><img src="${photoUrl(photo)}" alt="已保存的骑行照片 ${index + 1}"><button type="button" class="remove-photo" data-group-id="${e(group.id)}" data-photo="${e(photo)}" aria-label="移除照片 ${index + 1}">${icon('x')}</button></div>`).join('')}</div><button type="button" class="carousel-arrow previous" data-carousel-prev aria-label="上一张">${icon('chevron-left')}</button><button type="button" class="carousel-arrow next" data-carousel-next aria-label="下一张">${icon('chevron-right')}</button><span class="carousel-count">1 / ${photoSlides.length}</span>` : `<p class="carousel-empty">还没有照片，上传后会在这里轮播。</p>`}</div>
+      <div class="journal-carousel photo-carousel" data-carousel>${photoSlides.length ? `<div class="carousel-track">${photoSlides.map(({ group, photo }, index) => `<div class="carousel-slide ${index ? '' : 'is-active'}" data-group-id="${e(group.id)}" data-retained="${e(photo)}"><img src="${e(previewUrl(previews, photo))}" alt="已保存的骑行照片 ${index + 1}"><button type="button" class="remove-photo" data-group-id="${e(group.id)}" data-photo="${e(photo)}" aria-label="移除照片 ${index + 1}">${icon('x')}</button></div>`).join('')}</div><button type="button" class="carousel-arrow previous" data-carousel-prev aria-label="上一张">${icon('chevron-left')}</button><button type="button" class="carousel-arrow next" data-carousel-next aria-label="下一张">${icon('chevron-right')}</button><span class="carousel-count">1 / ${photoSlides.length}</span>` : `<p class="carousel-empty">还没有照片，上传后会在这里轮播。</p>`}</div>
       <label class="upload-zone" id="drop-zone" for="photo-input"><span class="upload-icon">${icon('image-plus')}</span><strong>上传这一刻的照片</strong><span>JPG、PNG、WebP、苹果照片 · 超过 30 MB 将自动压缩</span><input id="photo-input" class="sr-only" type="file" name="photos" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" multiple></label>
       <ul id="pending-photo-names" class="pending-photo-names" aria-live="polite"></ul>
       <p id="photo-error" class="field-error" role="alert" hidden></p></section>
@@ -93,12 +96,13 @@ export function resultView(meta, record) {
   const filename = record.filename || record.date.replaceAll('-', '') + '.html';
   const filled = meta.metrics.filter(([key]) => record[key] != null && record[key] !== '');
   const segments = record.story_segments || [];
+  const previews = record.photo_previews || {};
   return `<div class="preview-layout"><div class="preview-toolbar"><div class="saved-status">${icon('circle-check')}<span>已珍藏这一程<small>${e(filename)}</small></span></div><a href="/gallery" class="text-link">时光画廊${icon('arrow-up-right')}</a></div>
     <article class="ride-story"><div class="story-date"><span>骑行手记</span><time datetime="${e(record.date)}">${displayDate(record.date)}</time></div><h1>${e(record.title)}</h1>
     <div class="story-tags">${record.styles.map(style => `<span>${e(label(style))}</span>`).join('')}</div>
-    ${record.photos.length && !segments.length ? `<div class="story-photos">${record.photos.map((photo, index) => `<a href="${photoUrl(photo)}" target="_blank" rel="noopener"><img src="${photoUrl(photo)}" alt="${e(record.date)} 的骑行照片 ${index + 1}" ${index ? 'loading="lazy"' : ''}></a>`).join('')}</div>` : ''}
+    ${record.photos.length && !segments.length ? `<div class="story-photos">${record.photos.map((photo, index) => `<a href="${originalPhotoUrl(photo)}" target="_blank" rel="noopener"><img src="${e(previewUrl(previews, photo))}" alt="${e(record.date)} 的骑行照片 ${index + 1}" ${index ? 'loading="lazy"' : ''}></a>`).join('')}</div>` : ''}
     ${filled.length ? `<div class="story-metrics">${filled.map(([key, name, unit]) => `<div><span>${e(name)}</span><strong>${e(record[key])} <small>${key === 'duration' ? '' : e(unit)}</small></strong></div>`).join('')}</div>` : ''}
-    ${segments.length ? `<div class="story-segments">${segments.map((segment, index) => `<section class="story-segment${segment.photo ? '' : ' story-segment--text-only'}"><div class="story-segment__media">${segment.photo ? `<a href="${photoUrl(segment.photo)}" target="_blank" rel="noopener" aria-label="查看缩略图"><img src="${photoUrl(segment.photo)}" alt="${e(record.date)} 的骑行照片" ${index ? 'loading="lazy"' : ''}></a>` : `<span class="story-segment__placeholder" aria-hidden="true">✻</span>`}</div><div class="story-segment__body"><p class="story-segment__caption">${e(segment.text)}</p></div></section>`).join('')}</div>` : ''}
+    ${segments.length ? `<div class="story-segments">${segments.map((segment, index) => `<section class="story-segment${segment.photo ? '' : ' story-segment--text-only'}"><div class="story-segment__media">${segment.photo ? `<a href="${originalPhotoUrl(segment.photo)}" target="_blank" rel="noopener" aria-label="查看原图"><img src="${e(previewUrl(previews, segment.photo))}" alt="${e(record.date)} 的骑行照片" ${index ? 'loading="lazy"' : ''}></a>` : `<span class="story-segment__placeholder" aria-hidden="true">✻</span>`}</div><div class="story-segment__body"><p class="story-segment__caption">${e(segment.text)}</p></div></section>`).join('')}</div>` : ''}
     <div class="story-entries">${record.entries.map((entry, index) => `<section class="story-entry"><h2><span>${String(index + 1).padStart(2, '0')}</span>${e(label(entry.style))}</h2><p>${e(entry.text)}</p></section>`).join('')}</div>
     <div class="story-signoff"><span></span>这一程，已成为时光<span></span></div></article>
     <div class="preview-actions"><a class="button secondary" href="/?edit=${encodeURIComponent(record.date)}">${icon('pencil')}返回修改</a><a class="button primary" href="/cycling/${encodeURIComponent(filename)}" target="_blank" rel="noopener">${icon('external-link')}查看 HTML</a></div></div>`;

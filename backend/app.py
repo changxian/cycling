@@ -91,6 +91,7 @@ METRICS = [
     ("heart_rate", "平均心率", "bpm", "heart-pulse"),
 ]
 PHOTO_PATTERN = re.compile(r"^[a-f0-9]{32}\.(?:jpg|jpeg|png|webp)$")
+INLINE_PREVIEW_LIMIT = 2 * 1024 * 1024
 FILE_PATTERN = re.compile(r"^\d{8}(?:_[1-9]\d*)?\.html$")
 
 
@@ -684,6 +685,10 @@ def create_app(test_config=None):
             db.rollback()
             raise UserError("该账号已被注册。", 409)
         establish_session(db.execute("SELECT id, username, is_admin FROM users WHERE id = ?", (result.lastrowid,)).fetchone())
+        shared = db.execute("SELECT base_url, api_key, model, story_schemes FROM user_ai_configs WHERE owner_id = (SELECT id FROM users WHERE is_admin = 1) AND priority = 99").fetchone()
+        if shared:
+            db.execute("INSERT OR IGNORE INTO user_ai_configs (owner_id, base_url, api_key, model, priority, story_schemes) VALUES (?, ?, ?, ?, 99, ?)", (result.lastrowid, shared[0], shared[1], shared[2], shared[3]))
+            db.commit()
         return jsonify(session_payload()), 201
 
     @app.post("/api/login")
@@ -715,6 +720,21 @@ def create_app(test_config=None):
         rows = account_configs()
         return rows[0] if rows else None
 
+    def sync_shared_config(base_url, api_key, model, story_schemes):
+        """Propagate root's priority-99 configuration to every ordinary account."""
+        if not g.is_admin:
+            return
+        db = get_db()
+        users = db.execute("SELECT id FROM users WHERE id != ?", (g.owner_id,)).fetchall()
+        for user in users:
+            db.execute(
+                "INSERT INTO user_ai_configs (owner_id, base_url, api_key, model, priority, story_schemes) "
+                "VALUES (?, ?, ?, ?, 99, ?) ON CONFLICT(owner_id, priority) DO UPDATE SET "
+                "base_url=excluded.base_url, api_key=excluded.api_key, model=excluded.model, "
+                "story_schemes=excluded.story_schemes, updated_at=CURRENT_TIMESTAMP",
+                (user["id"], base_url, api_key, model, json.dumps(story_schemes, ensure_ascii=False)),
+            )
+
     @app.get("/api/meta")
     def metadata():
         config = account_config()
@@ -738,7 +758,7 @@ def create_app(test_config=None):
                 "story_schemes": json.loads(row["story_schemes"])
             }) if row else {},
         )
-        if len(configs) > 1:
+        if len(configs) > 1 or (configs and configs[0]["priority"] == 99):
             payload["configs"] = serialized
         return jsonify(payload)
 
@@ -769,24 +789,30 @@ def create_app(test_config=None):
             config_id = int(config_id) if config_id not in (None, "") else None
         except (TypeError, ValueError):
             raise UserError("配置编号无效。")
+        target = None
+        if config_id:
+            target = get_db().execute(
+                "SELECT * FROM user_ai_configs WHERE id = ? AND owner_id = ?",
+                (config_id, g.owner_id),
+            ).fetchone()
+            if not target:
+                raise UserError("AI 配置不存在。", 404)
+        key_source = target or existing
         has_story_schemes = "story_schemes" in source or any(
             "story_scheme_" + style in source for style in STYLE_MAP
         )
         story_schemes = normalize_story_schemes(source) if has_story_schemes else normalize_story_schemes({
-            "story_schemes": json.loads(existing["story_schemes"]) if existing else {}
+            "story_schemes": json.loads(key_source["story_schemes"]) if key_source else {}
         })
-        if not key and existing:
-            if base_url != existing["base_url"]:
+        if not key and key_source:
+            if base_url != key_source["base_url"]:
                 raise UserError("更换 Base URL 时，请重新输入 API Key。")
-            key = existing["api_key"]
+            key = key_source["api_key"]
         if not key or len(key) > 4096 or "\n" in key or "\r" in key:
             raise UserError("请输入有效的 API Key。")
         if len(model) > 200 or len(base_url) > 2000:
             raise UserError("模型名称或地址过长。")
         if config_id:
-            target = get_db().execute("SELECT * FROM user_ai_configs WHERE id = ? AND owner_id = ?", (config_id, g.owner_id)).fetchone()
-            if not target:
-                raise UserError("AI 配置不存在。", 404)
             try:
                 priority = int(source.get("priority", target["priority"]))
             except (TypeError, ValueError):
@@ -796,6 +822,8 @@ def create_app(test_config=None):
             get_db().execute("UPDATE user_ai_configs SET base_url=?, api_key=?, model=?, priority=?, story_schemes=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND owner_id=?", (base_url, key, model, priority, json.dumps(story_schemes, ensure_ascii=False), config_id, g.owner_id))
             if priority == 1:
                 get_db().execute("UPDATE user_ai_config SET base_url=?, api_key=?, model=?, story_schemes=? WHERE owner_id=?", (base_url, key, model, json.dumps(story_schemes, ensure_ascii=False), g.owner_id))
+            if g.is_admin and priority == 99:
+                sync_shared_config(base_url, key, model, story_schemes)
         else:
             try:
                 priority = int(source.get("priority", len(account_configs()) + 1))
@@ -807,6 +835,8 @@ def create_app(test_config=None):
             get_db().execute("INSERT INTO user_ai_configs (owner_id, base_url, api_key, model, priority, story_schemes) VALUES (?, ?, ?, ?, ?, ?)", (g.owner_id, base_url, key, model, priority, json.dumps(story_schemes, ensure_ascii=False)))
             if priority == 1:
                 get_db().execute("INSERT INTO user_ai_config (owner_id, base_url, api_key, model, story_schemes) VALUES (?, ?, ?, ?, ?) ON CONFLICT(owner_id) DO UPDATE SET base_url=excluded.base_url, api_key=excluded.api_key, model=excluded.model, story_schemes=excluded.story_schemes", (g.owner_id, base_url, key, model, json.dumps(story_schemes, ensure_ascii=False)))
+            if g.is_admin and priority == 99:
+                sync_shared_config(base_url, key, model, story_schemes)
         get_db().commit()
         return jsonify(message="AI 配置已保存。")
 
@@ -963,6 +993,42 @@ def create_app(test_config=None):
     def journal_texts(journal):
         return [group["text"] for group in journal.get("groups", []) if group.get("text")]
 
+    def photo_previews(names):
+        previews = {}
+        total_bytes = 0
+        photo_dir = Path(app.config["PHOTO_DIR"])
+        for name in dict.fromkeys(names):
+            if not PHOTO_PATTERN.fullmatch(name):
+                continue
+            thumbnail = photo_dir / "thumbs" / (name + ".jpg")
+            if not thumbnail.is_file():
+                original = photo_dir / name
+                if not original.is_file():
+                    continue
+                thumbnail.parent.mkdir(exist_ok=True)
+                payload = create_thumbnail(original)
+                with tempfile.NamedTemporaryFile(dir=thumbnail.parent, delete=False) as temporary:
+                    temporary.write(payload)
+                os.replace(temporary.name, thumbnail)
+            payload = thumbnail.read_bytes()
+            if total_bytes + len(payload) > INLINE_PREVIEW_LIMIT:
+                continue
+            total_bytes += len(payload)
+            previews[name] = "data:image/jpeg;base64," + base64.b64encode(
+                payload
+            ).decode("ascii")
+        return previews
+
+    def journal_response(journal):
+        payload = dict(journal)
+        payload["photo_previews"] = photo_previews(journal_photos(journal))
+        return payload
+
+    def record_response(record):
+        payload = dict(record)
+        payload["photo_previews"] = photo_previews(record.get("photos", []))
+        return payload
+
     def journal_for(ride_date):
         row = get_db().execute("SELECT payload FROM user_journals WHERE owner_id = ? AND date = ?", (g.owner_id, ride_date)).fetchone()
         if not row:
@@ -1073,7 +1139,7 @@ def create_app(test_config=None):
             date.fromisoformat(ride_date)
         except ValueError:
             abort(404)
-        return jsonify(journal=journal_for(ride_date))
+        return jsonify(journal=journal_response(journal_for(ride_date)))
 
     @app.delete("/api/journals/<ride_date>/group/<group_id>")
     def delete_journal_group(ride_date, group_id):
@@ -1091,7 +1157,7 @@ def create_app(test_config=None):
             raise UserError("记录不存在或已删除，请刷新页面。", 404)
         journal["groups"] = remaining
         persist_journal(journal)
-        return jsonify(message="已从当天手记中删除。", journal=journal)
+        return jsonify(message="已从当天手记中删除。", journal=journal_response(journal))
 
     @app.delete("/api/journals/<ride_date>/photo/<group_id>/<photo_name>")
     def delete_journal_photo(ride_date, group_id, photo_name):
@@ -1110,7 +1176,7 @@ def create_app(test_config=None):
         # Drop groups that end up with neither text nor photos.
         journal["groups"] = [item for item in journal["groups"] if item.get("text") or item.get("photos")]
         persist_journal(journal)
-        return jsonify(message="已从当天手记中删除。", journal=journal)
+        return jsonify(message="已从当天手记中删除。", journal=journal_response(journal))
 
     @app.post("/api/journals")
     def save_journal():
@@ -1138,7 +1204,7 @@ def create_app(test_config=None):
             for path in created:
                 path.unlink(missing_ok=True)
             raise
-        return jsonify(message="已保存到当天骑行手记。", journal=journal)
+        return jsonify(message="已保存到当天骑行手记。", journal=journal_response(journal))
 
     def persist_record(data, journal):
         output_dir = Path(app.config["OUTPUT_DIR"])
@@ -1276,7 +1342,7 @@ def create_app(test_config=None):
         session["last_date"] = data["date"]
         return jsonify(
             redirect="/generate?date=" + data["date"],
-            html_url=url_for("cycling_html", filename=filename), record=data,
+            html_url=url_for("cycling_html", filename=filename), record=record_response(data),
         )
 
     @app.get("/api/story-tasks/<task_id>")
@@ -1312,7 +1378,7 @@ def create_app(test_config=None):
         if not record:
             abort(404)
         return jsonify(
-            record=record,
+            record=record_response(record),
             filename=record.get("filename", record["date"].replace("-", "") + ".html"),
         )
 

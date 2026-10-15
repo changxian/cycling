@@ -1,5 +1,5 @@
-import { postForm, request } from './api.js?v=20260914-ai-configs-1';
-import { collectPhotoFiles } from './photo-files.js?v=20260914-ai-configs-1';
+import { postForm, request } from './api.js?v=20261015-photo-data-1';
+import { collectPhotoFiles } from './photo-files.js?v=20261015-photo-data-1';
 
 export function initInteractions() {
   const icons = () => window.lucide?.createIcons();

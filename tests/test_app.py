@@ -114,6 +114,10 @@ def test_upload_creates_small_thumbnail_and_preserves_original(app, client):
     assert Path(app.config["PHOTO_DIR"], name).read_bytes() == original
     assert client.get("/tmp/thumbs/" + name + ".jpg").data == thumbnail.read_bytes()
     assert client.get("/cycling/photos/" + name).data == original
+    journal = client.get("/api/journals/2026-09-12").get_json()["journal"]
+    preview = journal["photo_previews"][name]
+    assert preview.startswith("data:image/jpeg;base64,")
+    assert base64.b64decode(preview.split(",", 1)[1]) == thumbnail.read_bytes()
 
 
 def test_legacy_thumbnail_is_generated_on_request(app, client):
@@ -165,6 +169,9 @@ def test_export_displays_thumbnail_with_original_link(app, client, monkeypatch):
     response = post(client, "/api/generate", {"styles": "poetic", "photos": image_upload()})
     record = response.get_json()["record"]
     name = record["photos"][0]
+    preview = record["photo_previews"][name]
+    assert preview.startswith("data:image/jpeg;base64,")
+    assert base64.b64decode(preview.split(",", 1)[1]) == Path(app.config["PHOTO_DIR"], "thumbs", name + ".jpg").read_bytes()
     html = client.get(response.get_json()["html_url"]).get_data(as_text=True)
     assert 'src="/cycling/photos/thumbs/' + name + '.jpg"' in html
     assert 'href="/cycling/photos/' + name + '"' in html
@@ -864,6 +871,18 @@ def test_ai_configs_use_priority_and_fallback(app, client, monkeypatch):
     result = post(client, "/api/generate", {"date": "2026-09-14", "styles": "poetic"})
     assert result.status_code == 200
     assert calls == ["private-test-key", "low-key"]
+
+
+def test_updating_priority_reuses_the_target_config_key(app, client):
+    configure(client)
+    assert post(client, "/api/config", {"new_config": "1", "priority": "2", "base_url": "https://secondary.example/v1", "api_key": "secondary-key", "model": "secondary-model"}).status_code == 200
+    configs = client.get("/api/config").get_json()["configs"]
+    secondary = next(item for item in configs if item["priority"] == 2)
+    response = post(client, "/api/config", {"config_id": str(secondary["id"]), "priority": "3", "base_url": "https://secondary.example/v1", "model": "secondary-model"})
+    assert response.status_code == 200
+    with sqlite3.connect(app.config["DATABASE"]) as db:
+        row = db.execute("SELECT api_key, priority FROM user_ai_configs WHERE id = ?", (secondary["id"],)).fetchone()
+    assert row == ("secondary-key", 3)
 
 
 def test_existing_html_is_reserved_and_restart_keeps_story_metadata(app, client, monkeypatch):

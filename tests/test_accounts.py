@@ -87,6 +87,29 @@ def test_accounts_have_separate_journals_gallery_and_settings(app, client, monke
         for photo in record["photos"]:
             assert Path(app.config["PHOTO_DIR"], photo).is_file()
 
+def test_new_user_inherits_root_priority_99_config_and_root_updates_propagate(app, client):
+    configure(client)
+    assert post(client, "/api/config", {"new_config": "1", "priority": "99", "base_url": "https://shared.example/v1", "api_key": "shared-key", "model": "shared-model"}).status_code == 200
+    rider = app.test_client()
+    assert register(rider, "inherited_user").status_code == 201
+    inherited = rider.get("/api/config").get_json()["configs"]
+    shared = next(item for item in inherited if item["priority"] == 99)
+    assert shared["base_url"] == "https://shared.example/v1"
+    root_shared = next(item for item in client.get("/api/config").get_json()["configs"] if item["priority"] == 99)
+    assert post(client, "/api/config", {"config_id": str(root_shared["id"]), "priority": "99", "base_url": "https://shared-2.example/v1", "api_key": "shared-key-2", "model": "shared-model-2"}).status_code == 200
+    updated = next(item for item in rider.get("/api/config").get_json()["configs"] if item["priority"] == 99)
+    assert updated["base_url"] == "https://shared-2.example/v1"
+
+
+def test_existing_user_receives_root_priority_99_config_created_later(app, client):
+    rider = app.test_client()
+    assert register(rider, "existing_before_shared").status_code == 201
+    configure(client)
+    assert post(client, "/api/config", {"new_config": "1", "priority": "99", "base_url": "https://shared-later.example/v1", "api_key": "shared-later-key", "model": "shared-later-model"}).status_code == 200
+    configs = rider.get("/api/config").get_json()["configs"]
+    shared = next(item for item in configs if item["priority"] == 99)
+    assert shared["base_url"] == "https://shared-later.example/v1"
+
 
 def test_background_tasks_keep_their_account_on_same_date(app, client, monkeypatch):
     login(client)
